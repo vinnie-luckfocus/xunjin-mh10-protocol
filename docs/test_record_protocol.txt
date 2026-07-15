@@ -1,0 +1,23 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0 -- /Users/xunjin/Xunjin/softwares/xunjin-mh10-modbus-protocol/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /Users/xunjin/Xunjin/softwares/xunjin-mh10-modbus-protocol
+collecting ... collected 15 items
+
+tests/test_protocol.py::TestFrontBoardOnline::test_online_const PASSED   [  6%]
+tests/test_protocol.py::TestFrontBoardOnline::test_version_registers PASSED [ 13%]
+tests/test_protocol.py::TestFrontBoardOnline::test_toolhead_state PASSED [ 20%]
+tests/test_protocol.py::TestFrontBoardOnline::test_write_target_speed PASSED [ 26%]
+tests/test_protocol.py::TestFrontBoardOnline::test_write_ready_to_start PASSED [ 33%]
+tests/test_protocol.py::TestBackBoardOnline::test_version_register_initialized PASSED [ 40%]
+tests/test_protocol.py::TestBackBoardOnline::test_pressure_registers PASSED [ 46%]
+tests/test_protocol.py::TestBackBoardOnline::test_write_target_state PASSED [ 53%]
+tests/test_protocol.py::TestRebootMagic::test_reboot_with_magic PASSED   [ 60%]
+tests/test_protocol.py::TestRebootMagic::test_reboot_with_invalid_value_ignored PASSED [ 66%]
+tests/test_protocol.py::TestPollSequence::test_front_and_back_poll PASSED [ 73%]
+tests/test_reliability.py::TestCrcErrors::test_read_with_crc_error_recovery[virtual_board0] PASSED [ 80%]
+tests/test_reliability.py::TestSilentErrors::test_read_with_silent_recovery[virtual_board0] PASSED [ 86%]
+tests/test_reliability.py::TestCommunicationLost::test_communication_lost_after_consecutive_failures[virtual_board0] PASSED [ 93%]
+tests/test_reliability.py::TestExceptionResponse::test_illegal_function_exception PASSED [100%]
+
+============================== 15 passed in 8.40s ==============================
