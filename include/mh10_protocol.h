@@ -29,7 +29,7 @@ extern "C" {
 #define MH10_PROTOCOL_VERSION_MINOR 1U
 #define MH10_PROTOCOL_VERSION_PATCH 0U
 #define MH10_PROTOCOL_VERSION       \
-    ((uint16_t)((MH10_PROTOCOL_VERSION_MAJOR << 12) | \
+    ((uint16_t)((MH10_PROTOCOL_VERSION_MAJOR << 8) | \
                 (MH10_PROTOCOL_VERSION_MINOR << 4)  | \
                 (MH10_PROTOCOL_VERSION_PATCH)))
 
