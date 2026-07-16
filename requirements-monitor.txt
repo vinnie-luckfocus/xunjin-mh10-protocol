@@ -1,0 +1,6 @@
+# 总线监控器 GUI 依赖（在 requirements.txt 基础上追加）
+# 安装: pip install -r requirements.txt -r requirements-monitor.txt
+pyserial>=3.5
+PySide6>=6.5
+pyqtgraph>=0.13
+numpy>=1.24
