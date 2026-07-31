@@ -88,6 +88,7 @@
 | 0x0D | MH10_MB_FO_TOOLHEAD_READY_TO_SELFCHECK_WO | WO | 自检确认 |
 | 0x0E | MH10_MB_FO_TOOLHEAD_READY_TO_START_WO | WO | 启动/吸引确认 |
 | 0x0F | MH10_MB_FO_TOOLHEAD_PEDAL_DELAY_WO | WO | 踏板延时配置 |
+| 0x10 | MH10_MB_FO_TOOLHEAD_CYCLE_COUNTS_RW | RW | 切割往复周期计数（两次 HEAD_SWITCH 闭合沿间编码器计数） |
 
 ### 5.3 后板寄存器（Slave ID = 0x03）
 

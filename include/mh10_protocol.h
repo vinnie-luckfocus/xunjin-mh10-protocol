@@ -102,7 +102,7 @@ typedef enum {
 /**
  * @brief 前板寄存器映射。
  *
- * 地址范围 0x00 ~ 0x0F，避免与系统寄存器 0x18 ~ 0x1F 重叠。
+ * 地址范围 0x00 ~ 0x10，避免与系统寄存器 0x18 ~ 0x1F 重叠。
  */
 typedef enum {
     MH10_MB_FO_TOOLHEAD_STATE_RO             = 0x00, /*!< 工具头运行状态 */
@@ -123,6 +123,7 @@ typedef enum {
     MH10_MB_FO_TOOLHEAD_READY_TO_SELFCHECK_WO = 0x0D, /*!< 自检确认 */
     MH10_MB_FO_TOOLHEAD_READY_TO_START_WO    = 0x0E, /*!< 启动/吸引确认 */
     MH10_MB_FO_TOOLHEAD_PEDAL_DELAY_WO       = 0x0F, /*!< 踏板延时配置 */
+    MH10_MB_FO_TOOLHEAD_CYCLE_COUNTS_RW      = 0x10, /*!< 切割往复周期计数（两次 HEAD_SWITCH 闭合沿间编码器计数） */
 } mh10_mb_front_reg_t;
 
 /**
@@ -211,7 +212,7 @@ typedef enum {
 #define MH10_CTASSERT(pred)        MH10_CTASSERT_(pred, __LINE__)
 #endif
 
-MH10_CTASSERT(MH10_MB_FO_TOOLHEAD_PEDAL_DELAY_WO < MH10_MB_REG_COUNT);
+MH10_CTASSERT(MH10_MB_FO_TOOLHEAD_CYCLE_COUNTS_RW < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_BK_TARGET_STATE_WO < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_REG_PROTOCOL_VERSION < MH10_MB_REG_COUNT);
 
