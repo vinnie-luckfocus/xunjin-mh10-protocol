@@ -95,8 +95,8 @@ typedef enum {
     MH10_MB_REG_SW_VERSION        = 0x1B, /*!< 软件版本 */
     MH10_MB_REG_SVN_NUM           = 0x1C, /*!< SVN 版本号 */
     MH10_MB_REG_PROTOCOL_VERSION  = 0x1D, /*!< 协议版本 V1.1.0 -> 0x0110 */
-    MH10_MB_REG_RESERVED_1E       = 0x1E, /*!< 保留 */
-    MH10_MB_REG_RESERVED_1F       = 0x1F, /*!< 保留 */
+    MH10_MB_REG_GIT_HASH_HI       = 0x1E, /*!< 固件 git 提交号高 16 位（短哈希前 4 位 hex） */
+    MH10_MB_REG_GIT_HASH_LO       = 0x1F, /*!< 固件 git 提交号低 16 位（短哈希第 5~8 位 hex） */
 } mh10_mb_system_reg_t;
 
 /**

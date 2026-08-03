@@ -65,8 +65,8 @@
 | 0x1B | MH10_MB_REG_SW_VERSION | RO | - | 软件版本 |
 | 0x1C | MH10_MB_REG_SVN_NUM | RO | - | SVN 版本号 |
 | 0x1D | MH10_MB_REG_PROTOCOL_VERSION | RO | 0x0110 | 协议版本 V1.1.0 |
-| 0x1E | MH10_MB_REG_RESERVED_1E | - | 0x0000 | 保留 |
-| 0x1F | MH10_MB_REG_RESERVED_1F | - | 0x0000 | 保留 |
+| 0x1E | MH10_MB_REG_GIT_HASH_HI | RO | - | 固件 git 提交号高 16 位（短哈希前 4 位 hex，按 hex 数值解读） |
+| 0x1F | MH10_MB_REG_GIT_HASH_LO | RO | - | 固件 git 提交号低 16 位（短哈希第 5~8 位 hex）。完整显示：`printf("%04x%04x", HI, LO)` |
 
 ### 5.2 前板寄存器（Slave ID = 0x02）
 
