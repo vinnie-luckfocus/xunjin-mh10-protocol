@@ -7,9 +7,9 @@ Xunjin MH10 Modbus 协议 Python 绑定。
 仿真器和协议文档示例。所有常量与 C 头文件保持严格一致。
 """
 
-# 协议版本
+# 协议版本（V1.2.0：新增 IAP/bootloader 固件升级寄存器）
 MH10_PROTOCOL_VERSION_MAJOR = 1
-MH10_PROTOCOL_VERSION_MINOR = 1
+MH10_PROTOCOL_VERSION_MINOR = 2
 MH10_PROTOCOL_VERSION_PATCH = 0
 MH10_PROTOCOL_VERSION = (MH10_PROTOCOL_VERSION_MAJOR << 8) | \
                         (MH10_PROTOCOL_VERSION_MINOR << 4)  | \
@@ -27,6 +27,10 @@ MH10_MODBUS_DEFAULT_RETRIES = 2
 MH10_MODBUS_ONLINE_CONST = 0xA0A0
 MH10_MODBUS_REBOOT_MAGIC = 0x5A5A
 
+# 进入 IAP bootloader 的安全魔数：
+# 向 MH10_MB_REG_IAP_ENTER 写入该值，下位机复位后由 bootloader 接管串口
+MH10_MODBUS_IAP_MAGIC = 0xB007
+
 # 从机地址
 MH10_SLAVE_ID_BROADCAST = 0x00
 MH10_SLAVE_ID_MOTOR = 0x01
@@ -40,6 +44,7 @@ MH10_MB_FC_WRITE_SINGLE_REGISTER = 0x06
 MH10_MB_FC_WRITE_MULTIPLE_REGISTERS = 0x10
 
 # 系统公共寄存器
+MH10_MB_REG_IAP_ENTER = 0x11
 MH10_MB_REG_CONST = 0x18
 MH10_MB_REG_REBOOT = 0x19
 MH10_MB_REG_HW_VERSION = 0x1A
@@ -113,17 +118,107 @@ MH10_ATTACH_READY = 2
 MH10_NP_SCALE_FACTOR = -100.0
 MH10_TOOLHEAD_SPEED_SCALE = 100
 
+# Flash 布局（STM32F103C8，64 KB，页 1 KB）
+MH10_FLASH_BASE = 0x08000000
+MH10_BL_BASE = 0x08000000
+MH10_BL_SIZE = 0x2000            # 8 KB
+MH10_APP_BASE = 0x08002000
+MH10_APP_END = 0x0800F7FF        # app 区最后一字节（含版本块）
+MH10_APP_MAX_SIZE = 0x0800F800 - MH10_APP_BASE   # 55296 B
+MH10_VERSION_BLOCK_ADDR = 0x0800F7C0             # app 区末尾 64 B
+MH10_VERSION_BLOCK_SIZE = 64
+MH10_VERSION_BLOCK_MAGIC = 0x4D483130            # ASCII "MH10"
+MH10_DEVICE_ID_PAGE_ADDR = 0x0800F800            # 最后一页，IAP 不得擦除
+
+# 版本块在 app 镜像内的偏移
+MH10_VERSION_BLOCK_IMAGE_OFFSET = MH10_VERSION_BLOCK_ADDR - MH10_APP_BASE  # 0xD7C0
+
+# bootloader 模式寄存器映射（仅在 bootloader 运行时有效，
+# 与 app 模式寄存器是相互独立的命名空间）
+MH10_BL_REG_MAGIC = 0x00     # RO bootloader 标识，固定 MH10_BL_MAGIC
+MH10_BL_REG_STATUS = 0x01    # RO mh10_bl_status_t
+MH10_BL_REG_ERROR = 0x02     # RO mh10_bl_error_t
+MH10_BL_REG_CMD = 0x03       # WO mh10_bl_cmd_t
+MH10_BL_REG_LENGTH = 0x04    # WO 固件总长度（字节），≤ MH10_APP_MAX_SIZE
+MH10_BL_REG_CRC16 = 0x05     # WO 整图 CRC16（Modbus 多项式，初值 0xFFFF）
+MH10_BL_REG_BLOCK = 0x06     # WO 数据窗口目标块号（128 B/块）
+MH10_BL_REG_PROGRESS = 0x07  # RO 已成功烧写的块数
+MH10_BL_REG_DATA = 0x10      # WO 数据窗口起始地址，64 个寄存器 = 128 B
+
+MH10_BL_MAGIC = 0xB010       # bootloader 运行标识
+MH10_BL_BLOCK_SIZE = 128     # 数据窗口字节数（64 个寄存器）
+MH10_BL_REG_DATA_COUNT = 64  # 数据窗口寄存器数（0x10~0x4F）
+
+# bootloader 状态
+MH10_BL_STATUS_IDLE = 0      # 上电/等待命令
+MH10_BL_STATUS_ERASING = 1   # 正在擦除 app 区
+MH10_BL_STATUS_READY = 2     # 擦除完成，可接收数据
+MH10_BL_STATUS_DONE = 3      # 校验通过，可跳转
+MH10_BL_STATUS_ERROR = 4     # 出错，见 MH10_BL_REG_ERROR
+
+# bootloader 错误码
+MH10_BL_ERROR_NONE = 0
+MH10_BL_ERROR_BAD_STATE = 1  # 当前状态不允许该命令
+MH10_BL_ERROR_BAD_LEN = 2    # 长度越界
+MH10_BL_ERROR_FLASH = 3      # 擦除/烧写失败
+MH10_BL_ERROR_BAD_CRC = 4    # 整图 CRC16 校验失败
+
+# bootloader 命令
+MH10_BL_CMD_ERASE = 0x0001   # 按 0x04 长度擦除 app 区
+MH10_BL_CMD_VERIFY = 0x0002  # 按 0x04/0x05 校验整图 CRC16
+MH10_BL_CMD_JUMP = 0x5A5A    # 跳转 app（复用复位魔数）
+
+
+import struct as _struct
+
+# mh10_version_block_t：magic u32 + board/sw/svn/git_hi/git_lo/struct_ver 6×u16
+# + reserved 24×u16（填充 0xFF），小端，共 64 B
+_VERSION_BLOCK_FMT = "<I6H24H"
+_VERSION_BLOCK_STRUCT_VER = 1
+
+
+def build_version_block(board_id: int, sw_version: int, svn_num: int,
+                        git_hash_hi: int, git_hash_lo: int) -> bytes:
+    """构造 64 字节 app 版本块（含 MH10_VERSION_BLOCK_MAGIC，reserved 填充 0xFF）。"""
+    return _struct.pack(
+        _VERSION_BLOCK_FMT,
+        MH10_VERSION_BLOCK_MAGIC, board_id, sw_version, svn_num,
+        git_hash_hi, git_hash_lo, _VERSION_BLOCK_STRUCT_VER,
+        *([0xFFFF] * 24),
+    )
+
+
+def parse_version_block(data: bytes) -> dict:
+    """解析 64 字节 app 版本块；magic 不匹配时抛出 ValueError。"""
+    if len(data) != MH10_VERSION_BLOCK_SIZE:
+        raise ValueError(f"版本块长度应为 {MH10_VERSION_BLOCK_SIZE} 字节，实际 {len(data)}")
+    fields = _struct.unpack(_VERSION_BLOCK_FMT, data)
+    if fields[0] != MH10_VERSION_BLOCK_MAGIC:
+        raise ValueError(f"版本块 magic 不匹配：0x{fields[0]:08X}")
+    return {
+        "magic": fields[0],
+        "board_id": fields[1],
+        "sw_version": fields[2],
+        "svn_num": fields[3],
+        "git_hash_hi": fields[4],
+        "git_hash_lo": fields[5],
+        "struct_ver": fields[6],
+    }
+
 
 class MH10RegisterMap:
     """提供寄存器地址到名称的反向查找，便于测试日志输出。"""
 
     _SYSTEM = {
+        MH10_MB_REG_IAP_ENTER: "MB_REG_IAP_ENTER",
         MH10_MB_REG_CONST: "MB_REG_CONST",
         MH10_MB_REG_REBOOT: "MB_REG_REBOOT",
         MH10_MB_REG_HW_VERSION: "MB_REG_HW_VERSION",
         MH10_MB_REG_SW_VERSION: "MB_REG_SW_VERSION",
         MH10_MB_REG_SVN_NUM: "MB_REG_SVN_NUM",
         MH10_MB_REG_PROTOCOL_VERSION: "MB_REG_PROTOCOL_VERSION",
+        MH10_MB_REG_GIT_HASH_HI: "MB_REG_GIT_HASH_HI",
+        MH10_MB_REG_GIT_HASH_LO: "MB_REG_GIT_HASH_LO",
     }
 
     _FRONT = {
@@ -153,10 +248,35 @@ class MH10RegisterMap:
         MH10_MB_BK_TARGET_STATE_WO: "MB_BK_TARGET_STATE_WO",
     }
 
+    _BOOTLOADER = {
+        MH10_BL_REG_MAGIC: "BL_REG_MAGIC",
+        MH10_BL_REG_STATUS: "BL_REG_STATUS",
+        MH10_BL_REG_ERROR: "BL_REG_ERROR",
+        MH10_BL_REG_CMD: "BL_REG_CMD",
+        MH10_BL_REG_LENGTH: "BL_REG_LENGTH",
+        MH10_BL_REG_CRC16: "BL_REG_CRC16",
+        MH10_BL_REG_BLOCK: "BL_REG_BLOCK",
+        MH10_BL_REG_PROGRESS: "BL_REG_PROGRESS",
+        MH10_BL_REG_DATA: "BL_REG_DATA",
+    }
+
     @classmethod
     def name(cls, slave_id: int, address: int) -> str:
         if slave_id == MH10_SLAVE_ID_FRONT_BOARD:
-            return cls._FRONT.get(address, f"REG_0x{address:02X}")
+            return cls._FRONT.get(address, cls._SYSTEM.get(address, f"REG_0x{address:02X}"))
         if slave_id == MH10_SLAVE_ID_BACK_BOARD:
-            return cls._BACK.get(address, f"REG_0x{address:02X}")
+            return cls._BACK.get(address, cls._SYSTEM.get(address, f"REG_0x{address:02X}"))
         return cls._SYSTEM.get(address, f"REG_0x{address:02X}")
+
+    @classmethod
+    def bl_name(cls, address: int) -> str:
+        """bootloader 模式寄存器名（与 app 模式相互独立的命名空间）。
+
+        数据窗口 0x10~0x4F 与系统寄存器 0x18/0x19/0x1D 重叠，
+        后者优先显示（bootloader 对它们读时返回系统值）。
+        """
+        if address in cls._SYSTEM:
+            return cls._SYSTEM[address]
+        if MH10_BL_REG_DATA <= address < MH10_BL_REG_DATA + MH10_BL_REG_DATA_COUNT:
+            return f"BL_REG_DATA+{address - MH10_BL_REG_DATA}"
+        return cls._BOOTLOADER.get(address, f"REG_0x{address:02X}")

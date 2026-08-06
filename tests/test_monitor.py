@@ -23,6 +23,7 @@ from virtual_board import VirtualBoard, _crc16 as board_crc16  # noqa: E402
 
 from monitor.analyzer import (  # noqa: E402
     BusAnalyzer,
+    MH10_PROTOCOL_VERSION,
     MH10_SLAVE_ID_FRONT_BOARD,
     MH10_SLAVE_ID_BACK_BOARD,
     MH10_SLAVE_ID_BROADCAST,
@@ -331,7 +332,7 @@ class TestEndToEnd:
         assert snap["devices"][2]["alive"] and snap["devices"][3]["alive"]
         assert snap["front"]["speed_rpm"] is not None
         assert snap["back"]["np_is_kpa"] is not None
-        assert snap["devices"][2]["versions"]["protocol"] == 0x0110
+        assert snap["devices"][2]["versions"]["protocol"] == MH10_PROTOCOL_VERSION
 
     def test_silent_board_full_loss(self, pty_board):
         board, slave_name = pty_board

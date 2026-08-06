@@ -26,12 +26,22 @@ from mh10_protocol import (
     MH10_MB_FC_READ_HOLDING_REGISTERS,
     MH10_MB_FC_WRITE_SINGLE_REGISTER,
     MH10_MB_FC_WRITE_MULTIPLE_REGISTERS,
+    MH10_MB_REG_IAP_ENTER,
     MH10_MB_REG_CONST,
     MH10_MB_REG_REBOOT,
     MH10_MB_REG_HW_VERSION,
     MH10_MB_REG_SW_VERSION,
     MH10_MB_REG_SVN_NUM,
     MH10_MB_REG_PROTOCOL_VERSION,
+    MH10_BL_REG_MAGIC,
+    MH10_BL_REG_STATUS,
+    MH10_BL_REG_ERROR,
+    MH10_BL_REG_CMD,
+    MH10_BL_REG_DATA,
+    MH10_BL_MAGIC,
+    MH10_BL_CMD_ERASE,
+    MH10_BL_CMD_VERIFY,
+    MH10_BL_CMD_JUMP,
     MH10_MB_FO_TOOLHEAD_STATE_RO,
     MH10_MB_FO_TOOLHEAD_EXCEPTION_RW,
     MH10_MB_FO_TOOLHEAD_INFO_RO,
@@ -53,6 +63,7 @@ from mh10_protocol import (
     MH10_MODBUS_DEFAULT_TIMEOUT_MS,
     MH10_MODBUS_ONLINE_CONST,
     MH10_MODBUS_REBOOT_MAGIC,
+    MH10_MODBUS_IAP_MAGIC,
     MH10_PROTOCOL_VERSION,
     MH10_SLAVE_ID_BROADCAST,
     MH10_SLAVE_ID_MOTOR,
@@ -118,6 +129,28 @@ BACKBOARD_STATES = {
     2: "OPEN",
 }
 
+BL_STATUS_NAMES = {
+    0: "IDLE",
+    1: "ERASING",
+    2: "READY",
+    3: "DONE",
+    4: "ERROR",
+}
+
+BL_ERROR_NAMES = {
+    0: "NONE",
+    1: "BAD_STATE",
+    2: "BAD_LEN",
+    3: "FLASH",
+    4: "BAD_CRC",
+}
+
+BL_CMD_NAMES = {
+    MH10_BL_CMD_ERASE: "ERASE",
+    MH10_BL_CMD_VERIFY: "VERIFY",
+    MH10_BL_CMD_JUMP: "JUMP",
+}
+
 
 @dataclass
 class Event:
@@ -153,6 +186,7 @@ class DeviceStats:
     exceptions: int = 0
     crc_errors: int = 0
     consecutive_failures: int = 0
+    bootloader: bool = False                   # 是否处于 IAP bootloader 模式
     latency_sum: float = 0.0
     latency_count: int = 0
     latency_min: Optional[float] = None
@@ -464,6 +498,19 @@ class BusAnalyzer:
             self._event("info", f"负压目标状态 → {BACKBOARD_STATES.get(value, value)}")
         elif addr == MH10_MB_REG_REBOOT and value == MH10_MODBUS_REBOOT_MAGIC:
             self._event("error", f"检测到下发给{dev.name}的复位魔数 0x5A5A")
+        elif addr == MH10_MB_REG_IAP_ENTER and value == MH10_MODBUS_IAP_MAGIC:
+            dev.bootloader = True
+            self._event("error", f"检测到下发给{dev.name}的 IAP 魔数 0xB007（复位进入 bootloader）")
+        elif dev.bootloader and addr == MH10_BL_REG_CMD:
+            cmd = BL_CMD_NAMES.get(value, f"未知命令 0x{value:04X}")
+            self._event("info", f"{dev.name} bootloader 命令：{cmd}")
+            if value == MH10_BL_CMD_JUMP:
+                dev.bootloader = False  # 主站意图跳转 app（若 app 无效板子会自行留在 BL）
+        elif dev.bootloader and addr == MH10_BL_REG_ERROR and value != 0:
+            self._event("error", f"{dev.name} bootloader 错误：{BL_ERROR_NAMES.get(value, value)}")
+        elif addr == MH10_BL_REG_MAGIC and value == MH10_BL_MAGIC and not dev.bootloader:
+            dev.bootloader = True
+            self._event("warn", f"{dev.name} 处于 bootloader 模式（读到 BL 标识 0xB010）")
         elif addr == MH10_MB_REG_PROTOCOL_VERSION:
             if value != MH10_PROTOCOL_VERSION:
                 self._event("warn",
@@ -475,6 +522,9 @@ class BusAnalyzer:
     # ------------------------------------------------------------------
 
     def _reg_name(self, slave: int, addr: int) -> str:
+        dev = self.devices.get(slave)
+        if dev is not None and dev.bootloader:
+            return MH10RegisterMap.bl_name(addr)
         return MH10RegisterMap.name(slave, addr)
 
     def _decode_request(self, frame: Frame) -> str:
@@ -515,6 +565,15 @@ class BusAnalyzer:
     def _decode_value_semantic(self, slave: int, addr: int, value: Optional[int]) -> str:
         """附加物理量/枚举注释，如 '(RUNNING)' '(-50.0kPa)'。"""
         if value is None:
+            return ""
+        dev = self.devices.get(slave)
+        if dev is not None and dev.bootloader:
+            if addr == MH10_BL_REG_STATUS:
+                return f"({BL_STATUS_NAMES.get(value, '?')})"
+            if addr == MH10_BL_REG_ERROR:
+                return f"({BL_ERROR_NAMES.get(value, '?')})"
+            if addr == MH10_BL_REG_CMD:
+                return f"({BL_CMD_NAMES.get(value, '?')})"
             return ""
         if slave == MH10_SLAVE_ID_FRONT_BOARD:
             if addr == MH10_MB_FO_TOOLHEAD_STATE_RO:
