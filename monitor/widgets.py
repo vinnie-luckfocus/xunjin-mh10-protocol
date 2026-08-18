@@ -525,6 +525,149 @@ class FrameLogView(QtWidgets.QWidget):
         self.table.setRowCount(0)
 
 
+class FrameTimelineView(QtWidgets.QWidget):
+    """帧时间线：x 轴为相对秒（0=现在），y 轴为 设备×方向 车道。
+
+    每个点是一帧：REQ 青 / RESP 绿 / 广播 橙 / 错误与其他 红。
+    点击点可在底部查看该帧完整解码与 hex。数据缓冲独立于帧日志
+    环形队列，绕圈不影响时间线显示。
+    """
+
+    MAX_POINTS = 8000
+    _LANE_SLAVES = (0x02, 0x03, 0x01, 0x04)  # 前板/后板/DM2C/附加，自上而下
+    _OTHER_LANE = (-1, "OTHER")
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        from collections import deque
+        import pyqtgraph as pg
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+
+        controls = QtWidgets.QHBoxLayout()
+        controls.addWidget(self._dim("窗口"))
+        self.window_combo = QtWidgets.QComboBox()
+        for secs in (10, 30, 60, 120):
+            self.window_combo.addItem(f"{secs} 秒", secs)
+        self.window_combo.setCurrentIndex(1)
+        controls.addWidget(self.window_combo)
+        self.pause = QtWidgets.QCheckBox("暂停跟随")
+        controls.addWidget(self.pause)
+        clear = QtWidgets.QPushButton("清空")
+        clear.clicked.connect(self.clear)
+        controls.addWidget(clear)
+        controls.addStretch()
+        layout.addLayout(controls)
+
+        # 车道布局：每设备一条车道（REQ 青偏上 / RESP 绿偏下），
+        # 自上而下 前板/后板/DM2C/附加，然后 广播、错误/其他
+        self._lanes: Dict[tuple, tuple] = {}  # (slave, dir) -> (y, color)
+        self._lane_ticks = []  # (车道中心 y, 名称)
+        y = len(self._LANE_SLAVES) + 1
+        for sid in self._LANE_SLAVES:
+            name = DEVICE_NAMES.get(sid, f"0x{sid:02X}")
+            self._lanes[(sid, "REQ")] = (y + 0.18, CYAN)
+            self._lanes[(sid, "RESP")] = (y - 0.18, GREEN)
+            self._lane_ticks.append((y, name))
+            y -= 1
+        self._lanes[(0x00, "REQ")] = (y, ORANGE)
+        self._lane_ticks.append((y, "广播"))
+        y -= 1
+        self._lanes[self._OTHER_LANE] = (y, RED)
+        self._lane_ticks.append((y, "错误/其他"))
+
+        self.plot = pg.PlotWidget()
+        self.plot.setMinimumHeight(240)
+        self.plot.setBackground("#10161e")
+        self.plot.showGrid(x=True, y=False, alpha=0.15)
+        self.plot.setMouseEnabled(x=True, y=False)
+        self.plot.setMenuEnabled(False)
+        self.plot.hideButtons()
+        plot_item = self.plot.getPlotItem()
+        plot_item.setLabel("bottom", "秒（0 = 现在）", color="#8b98a8")
+        plot_item.getAxis("bottom").setPen(pg.mkPen("#232d3a"))
+        plot_item.getAxis("left").setPen(pg.mkPen("#232d3a"))
+        plot_item.getAxis("bottom").setTextPen(pg.mkPen("#8b98a8"))
+        plot_item.getAxis("left").setTextPen(pg.mkPen("#8b98a8"))
+        ticks = [[(y, name) for y, name in self._lane_ticks]]
+        plot_item.getAxis("left").setTicks(ticks)
+        plot_item.getAxis("left").setWidth(90)  # 车道名较长，避免裁剪
+        plot_item.setYRange(-0.7, len(self._LANE_SLAVES) + 1.7, padding=0)
+
+        self._scatters: Dict[tuple, object] = {}
+        self._scatter_lane: Dict[int, tuple] = {}
+        for key, (ly, color) in self._lanes.items():
+            sc = pg.ScatterPlotItem(size=7, pen=None, brush=pg.mkBrush(color), symbol="o")
+            sc.sigClicked.connect(self._on_point_clicked)
+            self.plot.addItem(sc)
+            self._scatters[key] = sc
+            self._scatter_lane[id(sc)] = key
+        layout.addWidget(self.plot, 1)
+
+        self.detail = QtWidgets.QLabel("点击时间线上的点查看帧详情")
+        self.detail.setObjectName("title")
+        self.detail.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        layout.addWidget(self.detail)
+
+        self._points = deque(maxlen=self.MAX_POINTS)  # (ts, lane_key, rec)，时间有序
+        self._visible: Dict[tuple, list] = {}  # lane_key -> 当前窗口内的 rec 列表
+
+    @staticmethod
+    def _dim(text: str) -> QtWidgets.QLabel:
+        lab = QtWidgets.QLabel(text)
+        lab.setObjectName("title")
+        return lab
+
+    def _lane_of(self, rec) -> tuple:
+        if rec.direction == "ERR":
+            return self._OTHER_LANE
+        key = (rec.slave, rec.direction)
+        return key if key in self._lanes else self._OTHER_LANE
+
+    def append(self, records) -> None:
+        for rec in records:
+            self._points.append((rec.ts, self._lane_of(rec), rec))
+
+    def update_view(self, now: float) -> None:
+        self._last_now = now
+        window_s = float(self.window_combo.currentData())
+        if not self.pause.isChecked():
+            self.plot.setXRange(-window_s, 0, padding=0)
+        per_lane: Dict[tuple, list] = {key: [] for key in self._lanes}
+        for ts, key, rec in self._points:
+            if now - ts <= window_s:
+                per_lane[key].append((ts - now, rec))
+        self._visible = {}
+        for key, items in per_lane.items():
+            self._scatters[key].setData(
+                [x for x, _ in items], [self._lanes[key][0]] * len(items))
+            self._visible[key] = [rec for _, rec in items]
+
+    def _on_point_clicked(self, scatter, points, *args) -> None:
+        if not points:
+            return
+        key = self._scatter_lane.get(id(scatter))
+        recs = self._visible.get(key)
+        if key is None or not recs:
+            return
+        pos = points[0].pos()
+        y = self._lanes[key][0]
+        # 按 x 距离找最近的一帧（不同 pyqtgraph 版本 SpotItem 接口不一，按坐标匹配最稳）
+        now = getattr(self, "_last_now", None) or (self._points[-1][0] if self._points else time.time())
+        best = min(recs, key=lambda r: abs((r.ts - now) - pos.x()) + abs(y - pos.y()))
+        self.detail.setText(
+            f"{fmt_ts(best.ts)}  {best.direction}  "
+            f"0x{best.slave:02X}  {best.summary}    [{best.hex}]")
+
+    def clear(self) -> None:
+        self._points.clear()
+        for sc in self._scatters.values():
+            sc.setData([], [])
+        self._visible = {}
+        self.detail.setText("点击时间线上的点查看帧详情")
+
+
 class EventLogView(QtWidgets.QWidget):
     """事件日志：设备上下线、状态迁移、异常、复位等。"""
 

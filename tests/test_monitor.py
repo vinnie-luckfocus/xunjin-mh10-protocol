@@ -463,6 +463,34 @@ class TestGuiSmoke:
         finally:
             os.close(master_fd)
 
+    def test_timeline_view(self, window):
+        an = window.analyzer
+        now = time.time()
+        # 前板 REQ/RESP、后板 RESP、广播各若干
+        feed_raw(an, make_read_req(2, 0, 16), ts=now - 2.0)
+        feed_raw(an, make_read_resp(2, [0] * 16), ts=now - 1.9)
+        feed_raw(an, make_read_req(3, 0, 4), ts=now - 1.0)
+        feed_raw(an, make_read_resp(3, [0x0101, 0, 0, 1]), ts=now - 0.9)
+        feed_raw(an, make_write_single(0, 0x0A, 100), ts=now - 0.5)
+        window._refresh()
+
+        tl = window.timeline
+        assert len(tl._points) == 5
+        # 车道归属：前板/后板各自 REQ/RESP 车道，广播独立车道
+        lane_of = {(rec.slave, rec.direction): key for _, key, rec in tl._points}
+        assert lane_of[(2, "REQ")] == (2, "REQ")
+        assert lane_of[(2, "RESP")] == (2, "RESP")
+        assert lane_of[(3, "RESP")] == (3, "RESP")
+        assert lane_of[(0, "REQ")] == (0, "REQ")
+        # 窗口外（>120s）的点不上屏；窗口内每车道点数正确
+        feed_raw(an, make_read_req(2, 0, 16), ts=now - 200.0)
+        window._refresh()
+        front_req = tl._visible[(2, "REQ")]
+        assert len(front_req) == 1 and front_req[0].slave == 2
+        # 清空
+        tl.clear()
+        assert len(tl._points) == 0
+
     def test_frame_log_keeps_updating_past_deque_maxlen(self, window):
         """帧数超过分析器环形队列上限后，实时帧表格必须持续更新（绕圈同步）。"""
         an = window.analyzer

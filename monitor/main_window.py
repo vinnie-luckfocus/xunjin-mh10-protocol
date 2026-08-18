@@ -17,6 +17,7 @@ from .widgets import (
     DeviceCard,
     EventLogView,
     FrameLogView,
+    FrameTimelineView,
     FrontBoardPanel,
     QualityPanel,
 )
@@ -145,8 +146,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # 下：日志区
         self.tabs = QtWidgets.QTabWidget()
         self.frame_log = FrameLogView()
+        self.timeline = FrameTimelineView()
         self.event_log = EventLogView()
         self.tabs.addTab(self.frame_log, "实时帧")
+        self.tabs.addTab(self.timeline, "时间线")
         self.tabs.addTab(self.event_log, "事件")
         root.addWidget(self.tabs, 2)
 
@@ -236,8 +239,11 @@ class MainWindow(QtWidgets.QMainWindow):
             # 复位（计数回退）或队列已绕整圈（旧增量被挤出）：清空重填
             self.frame_log.clear()
             self._frames_seen = first
-        self.frame_log.append(frames[self._frames_seen - first:])
+        new_frames = frames[self._frames_seen - first:]
+        self.frame_log.append(new_frames)
+        self.timeline.append(new_frames)
         self._frames_seen = total
+        self.timeline.update_view(now)
 
         events = snap["events"]
         ev_total = snap["event_log_total"]
@@ -257,6 +263,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._frames_seen = 0
         self._events_seen = 0
         self.frame_log.clear()
+        self.timeline.clear()
 
     def _export_csv(self) -> None:
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
