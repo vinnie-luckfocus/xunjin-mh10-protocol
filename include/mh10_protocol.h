@@ -2,8 +2,8 @@
 Copyright (C),  2024-2034 , XJMDT. Co., Ltd.
 File name: mh10_protocol.h
 Author: Vinnie.Zhou
-Version: V1.2.0
-Date: 2026/08/04
+Version: V1.3.0
+Date: 2026/08/17
 Contact: zhoushizheng331@gmail.com
 Description: Xunjin MH10 主控板与前后工控板 Modbus RTU 通信协议统一头文件。
              本文件为 C/C++ 双语言兼容，是主控板（a_box_app）与工控板
@@ -22,11 +22,12 @@ extern "C" {
 /**
  * @brief 协议版本（语义化版本，BCD 编码）。
  *
- * 当前为 V1.2.0，对应 0x0120（新增 IAP/bootloader 固件升级寄存器）。
+ * 当前为 V1.3.0，对应 0x0130（新增前板电机/往复运动调参寄存器区 0x20~0x4F，
+ * 寄存器数组扩展至 0x50）。
  * 该值同步写入系统寄存器 MH10_MB_REG_PROTOCOL_VERSION。
  */
 #define MH10_PROTOCOL_VERSION_MAJOR 1U
-#define MH10_PROTOCOL_VERSION_MINOR 2U
+#define MH10_PROTOCOL_VERSION_MINOR 3U
 #define MH10_PROTOCOL_VERSION_PATCH 0U
 #define MH10_PROTOCOL_VERSION       \
     ((uint16_t)((MH10_PROTOCOL_VERSION_MAJOR << 8) | \
@@ -36,9 +37,11 @@ extern "C" {
 /**
  * @brief Modbus 保持寄存器数组大小。
  *
- * 与现有工程保持一致（32 个寄存器，地址 0x00 ~ 0x1F）。
+ * V1.3.0 起从 0x20 扩展至 0x50（地址 0x00 ~ 0x4F）：
+ * 0x00~0x1F 为原有业务/系统区，0x20~0x4F 为前板电机调参区
+ * （后板不使用调参区，读返回 0、写忽略）。老版本主机不访问新区，向下兼容。
  */
-#define MH10_MB_REG_COUNT 0x20U
+#define MH10_MB_REG_COUNT 0x50U
 
 /**
  * @brief Modbus RTU 物理层参数。
@@ -134,6 +137,74 @@ typedef enum {
     MH10_MB_FO_TOOLHEAD_PEDAL_DELAY_WO       = 0x0F, /*!< 踏板延时配置 */
     MH10_MB_FO_TOOLHEAD_CYCLE_COUNTS_RW      = 0x10, /*!< 切割往复周期计数（两次 HEAD_SWITCH 闭合沿间编码器计数） */
 } mh10_mb_front_reg_t;
+
+/**
+ * @brief 前板电机/往复运动调参寄存器区（V1.3.0 新增，0x20~0x4F）。
+ *
+ * 用途：box 系统信息"电机调参"页面对切割往复引擎参数在线调参、
+ * 自动标定与手动档位运行。参数上电为固件定版默认值，写寄存器立即生效
+ * （易失，不擦写 flash；持久化由 box 侧 sys.ini 负责）。
+ * 详细设计见 b_mini_board 仓 docs/design-motor-tuning.md。
+ *
+ * 档位定义（数组下标 i = 0~7）：
+ *   jog rpm（电机轴） 300/600/900/1200/1500/2000/2500/3000
+ *   设定值（= jog×3）900/1800/2700/3600/4500/6000/7500/9000
+ */
+typedef enum {
+    /* 档位参数组（i = 0~7，基址 + i） */
+    MH10_MB_FO_TUNE_GEAR_SPEED_BASE   = 0x20, /*!< RW 档位全速段设定转速（8 个） */
+    MH10_MB_FO_TUNE_GEAR_ZONE_BASE    = 0x28, /*!< RW 档位近顶减速区步数（8 个） */
+    MH10_MB_FO_TUNE_GEAR_CURRENT_BASE = 0x30, /*!< RW 档位峰值电流 0.1A（8 个） */
+    MH10_MB_FO_TUNE_GEAR_ACCEL_BASE   = 0x38, /*!< RW 档位加速时间 ms/1000rpm（8 个） */
+
+    /* 往复位置/全局参数 */
+    MH10_MB_FO_TUNE_DECEL        = 0x40, /*!< RW 减速时间 ms/1000rpm（全局），默认 30 */
+    MH10_MB_FO_TUNE_START_SPEED  = 0x41, /*!< RW 起步段设定转速，默认 900（jog300） */
+    MH10_MB_FO_TUNE_START_STEPS  = 0x42, /*!< RW 起步段步数，默认 12 */
+    MH10_MB_FO_TUNE_SLOW_SPEED   = 0x43, /*!< RW 近顶爬行设定转速，默认 450（jog150） */
+    MH10_MB_FO_TUNE_REV_EXTRA    = 0x44, /*!< RW 沿采信后延迟换向步数（贴顶微调），默认 4 */
+    MH10_MB_FO_TUNE_CRAWL_ADJ_MAX = 0x45,/*!< RW 爬行自适应最大加步，默认 8 */
+    MH10_MB_FO_TUNE_ESTOP_MS     = 0x46, /*!< RW 急停减速时间 ms，默认 60 */
+
+    /* 标定与手动运行 */
+    MH10_MB_FO_TUNE_CMD          = 0x48, /*!< WO mh10_tune_cmd_t */
+    MH10_MB_FO_TUNE_GEAR         = 0x49, /*!< RW 手动运行档位号 0~7 */
+    MH10_MB_FO_TUNE_STATUS       = 0x4A, /*!< RO mh10_tune_status_t */
+    MH10_MB_FO_TUNE_CYCLE_COUNTS_RO = 0x4B, /*!< RO 标定测得的往复周期计数（同步写 0x10） */
+    MH10_MB_FO_TUNE_ZONE_WIDTH_RO   = 0x4C, /*!< RO 标定测得的闭合区宽度（步） */
+    MH10_MB_FO_TUNE_LAST_CYCLE_MS_RO = 0x4D,/*!< RO 最近一个往复实测耗时 ms */
+    MH10_MB_FO_TUNE_REV_STAT_RO     = 0x4E, /*!< RO 近 20 往复换向质量打包：
+                                                 bit0-4 E（沿采信）数 /
+                                                 bit5-9 F（固定点开关闭合）数 /
+                                                 bit10-14 O（固定点开关未闭合）数 */
+    MH10_MB_FO_TUNE_ERROR_RO        = 0x4F, /*!< RO mh10_tune_error_t 最近失败原因 */
+} mh10_mb_front_tune_reg_t;
+
+/** @brief 调参命令（写 MH10_MB_FO_TUNE_CMD）。 */
+typedef enum {
+    MH10_TUNE_CMD_AUTO_CALIB   = 1, /*!< 自动标定：寻顶测闭合区 + 周期计数 */
+    MH10_TUNE_CMD_MANUAL_START = 2, /*!< 手动运行启动（按 MH10_MB_FO_TUNE_GEAR 档位持续往复） */
+    MH10_TUNE_CMD_MANUAL_STOP  = 3, /*!< 手动运行停止（当前往复到顶 ESTOP 停 0 位） */
+    MH10_TUNE_CMD_RESTORE_DEFAULT = 4, /*!< 恢复定版默认参数 */
+} mh10_tune_cmd_t;
+
+/** @brief 调参状态（读 MH10_MB_FO_TUNE_STATUS）。 */
+typedef enum {
+    MH10_TUNE_STATUS_IDLE       = 0,
+    MH10_TUNE_STATUS_CALIBRATING = 1,
+    MH10_TUNE_STATUS_MANUAL_RUN  = 2,
+    MH10_TUNE_STATUS_CALIB_DONE  = 3,
+    MH10_TUNE_STATUS_FAILED      = 4,
+} mh10_tune_status_t;
+
+/** @brief 调参失败原因（读 MH10_MB_FO_TUNE_ERROR_RO）。 */
+typedef enum {
+    MH10_TUNE_ERROR_NONE       = 0,
+    MH10_TUNE_ERROR_NO_CUTTER  = 1, /*!< 未插入切割器 */
+    MH10_TUNE_ERROR_STALL      = 2, /*!< 堵转 */
+    MH10_TUNE_ERROR_TIMEOUT    = 3, /*!< 超时 */
+    MH10_TUNE_ERROR_NO_ZONE    = 4, /*!< 找不到闭合区 */
+} mh10_tune_error_t;
 
 /**
  * @brief 后板寄存器映射。
@@ -323,6 +394,7 @@ typedef enum {
 #endif
 
 MH10_CTASSERT(MH10_MB_FO_TOOLHEAD_CYCLE_COUNTS_RW < MH10_MB_REG_COUNT);
+MH10_CTASSERT(MH10_MB_FO_TUNE_ERROR_RO < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_BK_TARGET_STATE_WO < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_REG_IAP_ENTER < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_REG_PROTOCOL_VERSION < MH10_MB_REG_COUNT);

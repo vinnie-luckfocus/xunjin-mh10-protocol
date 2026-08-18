@@ -91,6 +91,36 @@
 | 0x0F | MH10_MB_FO_TOOLHEAD_PEDAL_DELAY_WO | WO | 踏板延时配置 |
 | 0x10 | MH10_MB_FO_TOOLHEAD_CYCLE_COUNTS_RW | RW | 切割往复周期计数（两次 HEAD_SWITCH 闭合沿间编码器计数） |
 
+### 5.2.1 前板调参寄存器区（V1.3.0 新增，0x20~0x4F）
+
+供 box 系统信息"电机调参"页面对切割往复引擎在线调参、自动标定与手动档位运行。
+参数上电为固件定版默认值，写入立即生效（易失，不擦写 flash，持久化由 box 侧负责）。
+档位下标 i=0~7 对应 jog rpm（电机轴）300/600/900/1200/1500/2000/2500/3000，
+设定值 = jog×3。详细设计见 b_mini_board 仓 docs/design-motor-tuning.md。
+
+| 地址 | 名称 | 方向 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| 0x20+i | MH10_MB_FO_TUNE_GEAR_SPEED_BASE | RW | 900/1800/2700/3600/4500/6000/7500/9000 | 档位全速段设定转速（8 个） |
+| 0x28+i | MH10_MB_FO_TUNE_GEAR_ZONE_BASE | RW | 6/6/6/10/16/26/50/68 | 档位近顶减速区步数（8 个） |
+| 0x30+i | MH10_MB_FO_TUNE_GEAR_CURRENT_BASE | RW | 16/18/18/18/20/20/22/22 | 档位峰值电流（0.1A，8 个） |
+| 0x38+i | MH10_MB_FO_TUNE_GEAR_ACCEL_BASE | RW | 80 | 档位加速时间 ms/1000rpm（8 个） |
+| 0x40 | MH10_MB_FO_TUNE_DECEL | RW | 30 | 减速时间 ms/1000rpm（全局） |
+| 0x41 | MH10_MB_FO_TUNE_START_SPEED | RW | 900 | 起步段设定转速（jog300） |
+| 0x42 | MH10_MB_FO_TUNE_START_STEPS | RW | 12 | 起步段步数 |
+| 0x43 | MH10_MB_FO_TUNE_SLOW_SPEED | RW | 450 | 近顶爬行设定转速（jog150） |
+| 0x44 | MH10_MB_FO_TUNE_REV_EXTRA | RW | 4 | 沿采信后延迟换向步数（贴顶微调） |
+| 0x45 | MH10_MB_FO_TUNE_CRAWL_ADJ_MAX | RW | 8 | 爬行自适应最大加步 |
+| 0x46 | MH10_MB_FO_TUNE_ESTOP_MS | RW | 60 | 急停减速时间 ms |
+| 0x48 | MH10_MB_FO_TUNE_CMD | WO | - | 命令：1=自动标定 2=手动运行启动 3=手动运行停止 4=恢复默认参数 |
+| 0x49 | MH10_MB_FO_TUNE_GEAR | RW | 0 | 手动运行档位号 0~7 |
+| 0x4A | MH10_MB_FO_TUNE_STATUS | RO | 0 | 0=空闲 1=标定中 2=手动运行中 3=标定完成 4=失败 |
+| 0x4B | MH10_MB_FO_TUNE_CYCLE_COUNTS_RO | RO | - | 标定测得的往复周期计数（同步写 0x10） |
+| 0x4C | MH10_MB_FO_TUNE_ZONE_WIDTH_RO | RO | - | 标定测得的闭合区宽度（步） |
+| 0x4D | MH10_MB_FO_TUNE_LAST_CYCLE_MS_RO | RO | - | 最近一个往复实测耗时 ms |
+| 0x4E | MH10_MB_FO_TUNE_REV_STAT_RO | RO | - | 近 20 往复换向质量：bit0-4 E 数 / bit5-9 F 数 / bit10-14 O 数 |
+| 0x4F | MH10_MB_FO_TUNE_ERROR_RO | RO | 0 | 失败原因：0 无 1 未插刀 2 堵转 3 超时 4 找不到闭合区 |
+
+
 ### 5.3 后板寄存器（Slave ID = 0x03）
 
 | 地址 | 名称 | 方向 | 默认值 | 说明 |
@@ -244,6 +274,7 @@ V1.2.0 起，前板/后板支持通过 Modbus 总线进行 IAP（In-Application 
 | V1.0.0 | 2024/12/30 | 初始版本，前板/后板/系统寄存器定义 |
 | V1.1.0 | 2026/07/15 | 统一协议到独立仓库；新增协议版本寄存器 0x1D；复位寄存器增加魔数 0x5A5A；后板版本寄存器强制初始化；主控板读操作增加重试；恢复后板周期轮询 |
 | V1.2.0 | 2026/08/04 | 新增 IAP/bootloader 固件升级：系统寄存器 0x11（写入 0xB007 进入 bootloader）；定义 flash 布局与 64 B app 版本块（magic "MH10" 作 app 有效标志）；新增 bootloader 模式寄存器映射（0x00~0x07 + 数据窗口 0x10~0x4F）及擦除/烧写/校验/跳转升级流程 |
+| V1.3.0 | 2026/08/17 | 寄存器数组 0x20 → 0x50；新增前板电机/往复运动调参寄存器区 0x20~0x4F（8 档速度/减速区/电流/加速时间 + 全局位置参数 + 自动标定/手动运行命令与状态），供 box 电机调参页使用 |
 
 ## 12. 引用与约束
 

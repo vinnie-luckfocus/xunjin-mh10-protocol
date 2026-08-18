@@ -54,6 +54,22 @@ from mh10_protocol import (
     MH10_MODBUS_REBOOT_MAGIC,
     MH10_MODBUS_IAP_MAGIC,
     MH10_PROTOCOL_VERSION,
+    MH10_MB_REG_COUNT,
+    MH10_TUNE_DEFAULT_GEAR_SPEED,
+    MH10_TUNE_DEFAULT_GEAR_ZONE,
+    MH10_TUNE_DEFAULT_GEAR_CURRENT,
+    MH10_TUNE_DEFAULT_GEAR_ACCEL,
+    MH10_MB_FO_TUNE_GEAR_SPEED_BASE,
+    MH10_MB_FO_TUNE_GEAR_ZONE_BASE,
+    MH10_MB_FO_TUNE_GEAR_CURRENT_BASE,
+    MH10_MB_FO_TUNE_GEAR_ACCEL_BASE,
+    MH10_MB_FO_TUNE_DECEL,
+    MH10_MB_FO_TUNE_START_SPEED,
+    MH10_MB_FO_TUNE_START_STEPS,
+    MH10_MB_FO_TUNE_SLOW_SPEED,
+    MH10_MB_FO_TUNE_REV_EXTRA,
+    MH10_MB_FO_TUNE_CRAWL_ADJ_MAX,
+    MH10_MB_FO_TUNE_ESTOP_MS,
     MH10_SLAVE_ID_BACK_BOARD,
     MH10_SLAVE_ID_FRONT_BOARD,
     MH10_TOOLHEAD_STATE_ONLINE_READY,
@@ -150,7 +166,8 @@ class VirtualBoard:
         }
 
     def _init_front_board(self):
-        regs = [0] * 0x20
+        # V1.3.0：寄存器数组扩至 MH10_MB_REG_COUNT（0x50），调参区填定版默认值
+        regs = [0] * MH10_MB_REG_COUNT
         regs[MH10_MB_REG_CONST] = MH10_MODBUS_ONLINE_CONST
         regs[MH10_MB_REG_HW_VERSION] = 0x0100
         regs[MH10_MB_REG_SW_VERSION] = 0x0110
@@ -166,6 +183,20 @@ class VirtualBoard:
         regs[MH10_MB_FO_PEDAL_SWITCH_RO] = 0
         regs[MH10_MB_FO_TOOLHEAD_INSERT_RO] = 1
         regs[MH10_MB_FO_TOOLHEAD_SWITCH_RO] = 0
+
+        # 调参区默认值（档位参数 8 档 + 全局参数）
+        for i in range(8):
+            regs[MH10_MB_FO_TUNE_GEAR_SPEED_BASE + i] = MH10_TUNE_DEFAULT_GEAR_SPEED[i]
+            regs[MH10_MB_FO_TUNE_GEAR_ZONE_BASE + i] = MH10_TUNE_DEFAULT_GEAR_ZONE[i]
+            regs[MH10_MB_FO_TUNE_GEAR_CURRENT_BASE + i] = MH10_TUNE_DEFAULT_GEAR_CURRENT[i]
+            regs[MH10_MB_FO_TUNE_GEAR_ACCEL_BASE + i] = MH10_TUNE_DEFAULT_GEAR_ACCEL[i]
+        regs[MH10_MB_FO_TUNE_DECEL] = 30
+        regs[MH10_MB_FO_TUNE_START_SPEED] = 900
+        regs[MH10_MB_FO_TUNE_START_STEPS] = 12
+        regs[MH10_MB_FO_TUNE_SLOW_SPEED] = 450
+        regs[MH10_MB_FO_TUNE_REV_EXTRA] = 4
+        regs[MH10_MB_FO_TUNE_CRAWL_ADJ_MAX] = 8
+        regs[MH10_MB_FO_TUNE_ESTOP_MS] = 60
         return regs
 
     def _init_back_board(self):
