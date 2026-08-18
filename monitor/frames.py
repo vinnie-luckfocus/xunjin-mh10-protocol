@@ -219,7 +219,9 @@ class FrameSegmenter:
         if base == MH10_MB_FC_READ_HOLDING_REGISTERS:
             cands.append(8)  # 请求
             bc = self._buf[2]
-            if bc and bc % 2 == 0 and bc <= 64:  # 响应：5 + 字节数
+            # 响应：5 + 字节数。V1.3.0 起寄存器区扩至 0x50（整区读 bc=160），
+            # 上限取 Modbus 规范最大值 125 寄存器 = 250 字节
+            if bc and bc % 2 == 0 and bc <= 250:
                 cands.append(5 + bc)
         elif base == MH10_MB_FC_WRITE_SINGLE_REGISTER:
             cands.append(8)  # 请求/响应同构
@@ -227,7 +229,8 @@ class FrameSegmenter:
             cands.append(8)  # 响应
             if n >= 7:
                 bc = self._buf[6]
-                if bc and bc % 2 == 0 and bc <= 64:  # 请求：9 + 字节数
+                # 请求：9 + 字节数。上限取 Modbus 规范最大值 123 寄存器 = 246 字节
+                if bc and bc % 2 == 0 and bc <= 246:
                     cands.append(9 + bc)
         return sorted(set(cands))
 

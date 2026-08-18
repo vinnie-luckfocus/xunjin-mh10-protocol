@@ -230,17 +230,23 @@ class MainWindow(QtWidgets.QMainWindow):
         self.quality_panel.update_stats(snap["totals"], snap["fps"], snap["bps"], snap["bus_load"])
 
         frames = snap["frame_log"]
-        if len(frames) < self._frames_seen:  # 复位后重新填充
-            self._frames_seen = 0
+        total = snap["frame_log_total"]
+        first = total - len(frames)  # 队列中最老一条的累计序号
+        if total < self._frames_seen or self._frames_seen < first:
+            # 复位（计数回退）或队列已绕整圈（旧增量被挤出）：清空重填
             self.frame_log.clear()
-        self.frame_log.append(frames[self._frames_seen:])
-        self._frames_seen = len(frames)
+            self._frames_seen = first
+        self.frame_log.append(frames[self._frames_seen - first:])
+        self._frames_seen = total
 
         events = snap["events"]
-        if len(events) < self._events_seen:
-            self._events_seen = 0
-        self.event_log.append(events[self._events_seen:])
-        self._events_seen = len(events)
+        ev_total = snap["event_log_total"]
+        ev_first = ev_total - len(events)
+        if ev_total < self._events_seen or self._events_seen < ev_first:
+            self.event_log.clear()
+            self._events_seen = ev_first
+        self.event_log.append(events[self._events_seen - ev_first:])
+        self._events_seen = ev_total
 
         secs = int(snap["duration"])
         self.duration_label.setText(

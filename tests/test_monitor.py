@@ -27,6 +27,7 @@ from monitor.analyzer import (  # noqa: E402
     MH10_SLAVE_ID_FRONT_BOARD,
     MH10_SLAVE_ID_BACK_BOARD,
     MH10_SLAVE_ID_BROADCAST,
+    MH10RegisterMap,
 )
 from monitor.frames import Frame, FrameSegmenter, append_crc, crc16  # noqa: E402
 
@@ -119,6 +120,26 @@ class TestSegmenter:
         assert len(frames) >= 1
         assert all(not f.crc_ok for f in frames)
         assert b"".join(f.raw for f in frames) == b"\x02\x99\x01\x02\x03"
+
+    def test_v130_full_region_read_segmented(self):
+        """V1.3.0 寄存器区扩至 0x50：整区读响应（bc=160）可正确分帧。"""
+        seg = FrameSegmenter()
+        req = make_read_req(2, 0, 0x50)
+        resp = make_read_resp(2, [0] * 0x50)
+        frames = seg.feed(req + resp, ts=1.000)
+        assert [f.raw for f in frames] == [req, resp]
+
+    def test_v130_long_write_multiple_segmented(self):
+        """V1.3.0 调参区批量写（0x20 起 40 个寄存器，bc=80）可正确分帧。"""
+        seg = FrameSegmenter()
+        values = [0] * 0x28
+        body = bytes([2, 0x10]) + struct.pack(">HHB", 0x20, len(values), len(values) * 2)
+        for v in values:
+            body += struct.pack(">H", v)
+        req = append_crc(body)
+        resp = append_crc(bytes([2, 0x10]) + struct.pack(">HH", 0x20, len(values)))
+        frames = seg.feed(req + resp, ts=1.000)
+        assert [f.raw for f in frames] == [req, resp]
 
 
 # ----------------------------------------------------------------------
@@ -264,6 +285,55 @@ class TestDecode:
         assert log[0].direction == "REQ" and "读保持寄存器" in log[0].summary
         assert log[1].direction == "RESP"
 
+    def test_tune_gear_array_names(self):
+        """V1.3.0 档位数组寄存器按索引命名。"""
+        assert MH10RegisterMap.name(2, 0x20) == "MB_FO_TUNE_GEAR_SPEED[0]"
+        assert MH10RegisterMap.name(2, 0x27) == "MB_FO_TUNE_GEAR_SPEED[7]"
+        assert MH10RegisterMap.name(2, 0x28) == "MB_FO_TUNE_GEAR_ZONE[0]"
+        assert MH10RegisterMap.name(2, 0x3F) == "MB_FO_TUNE_GEAR_ACCEL[7]"
+        assert MH10RegisterMap.name(2, 0x4A) == "MB_FO_TUNE_STATUS"
+
+    def test_tune_registers_decode(self):
+        """V1.3.0 调参区：快照字段、语义注释与事件。"""
+        an = BusAnalyzer()
+        feed_raw(an, make_read_req(2, 0, 0x50), ts=1.000)
+        values = [0] * 0x50
+        values[0x20] = 900    # 档0 转速
+        values[0x30] = 16     # 档0 电流 1.6A
+        values[0x49] = 3      # 手动运行档位
+        values[0x4A] = 3      # 标定完成
+        values[0x4B] = 216    # 周期计数
+        values[0x4C] = 6      # 闭合区宽度
+        values[0x4D] = 594    # 最近往复耗时
+        values[0x4E] = (2 << 10) | (3 << 5) | 15  # 沿采信15 固定闭合3 固定未闭合2
+        feed_raw(an, make_read_resp(2, values), ts=1.010)
+        snap = an.snapshot()
+        front = snap["front"]
+        assert front["tune_status_name"] == "标定完成"
+        assert front["tune_cycle_counts"] == 216
+        assert front["tune_zone_width"] == 6
+        assert front["tune_last_cycle_ms"] == 594
+        assert any("调参状态：— → 标定完成" in e.message for e in snap["events"])
+        resp_summary = snap["frame_log"][1].summary
+        assert "MB_FO_TUNE_GEAR_SPEED[0]=0x0384(档0 900RPM)" in resp_summary
+        assert "(档0 1.6A)" in resp_summary
+        assert "(标定完成)" in resp_summary
+        assert "(近20往复 沿采信15 固定闭合3 固定未闭合2)" in resp_summary
+
+    def test_tune_cmd_and_error_events(self):
+        an = BusAnalyzer()
+        feed_raw(an, make_write_single(2, 0x48, 1), ts=1.0)
+        feed_raw(an, make_write_single(2, 0x48, 1), ts=1.005)  # 0x06 响应回显
+        # 标定失败：状态 0→4，失败原因 4（找不到闭合区）
+        feed_raw(an, make_read_req(2, 0x4A, 6), ts=2.0)
+        feed_raw(an, make_read_resp(2, [4, 0, 0, 0, 0, 4]), ts=2.010)
+        snap = an.snapshot()
+        assert any("调参命令：自动标定" in e.message for e in snap["events"])
+        assert any(e.level == "error" and "调参状态：— → 标定失败" in e.message
+                   for e in snap["events"])
+        assert any(e.level == "error" and "调参失败原因：找不到闭合区" in e.message
+                   for e in snap["events"])
+
 
 # ----------------------------------------------------------------------
 # headless 端到端：虚拟板 + 真实串口帧 + tee 进分析器
@@ -392,3 +462,28 @@ class TestGuiSmoke:
             assert len(sniffers) == 0
         finally:
             os.close(master_fd)
+
+    def test_frame_log_keeps_updating_past_deque_maxlen(self, window):
+        """帧数超过分析器环形队列上限后，实时帧表格必须持续更新（绕圈同步）。"""
+        an = window.analyzer
+        an.frame_log = an.frame_log.__class__(maxlen=100)  # 缩小上限模拟绕圈
+        ts = time.time()
+        for i in range(250):
+            feed_raw(an, make_read_req(2, 0, 16), ts=ts + i * 0.001)
+        window._refresh()
+        assert window._frames_seen == 250
+        assert window.frame_log.table.rowCount() == 100  # 表格截断到队列内最新 100 条
+        first_hex = window.frame_log.table.item(0, 4).text()
+        assert first_hex == make_read_req(2, 0, 16).hex(" ").upper()
+        # 再来 50 条：表格必须继续滚动而不是停住
+        for i in range(250, 300):
+            feed_raw(an, make_read_req(3, 0, 4), ts=ts + i * 0.001)
+        window._refresh()
+        assert window._frames_seen == 300
+        # 表格上限 1000 > 已同步 150，新 50 条全部追加成功
+        assert window.frame_log.table.rowCount() == 150
+        assert window.frame_log.table.item(0, 2).text() == "0x02"
+        assert window.frame_log.table.item(149, 2).text() == "0x03"
+        rows_03 = sum(1 for r in range(150)
+                      if window.frame_log.table.item(r, 2).text() == "0x03")
+        assert rows_03 == 50

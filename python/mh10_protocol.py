@@ -221,6 +221,7 @@ MH10_BL_CMD_JUMP = 0x5A5A    # 跳转 app（复用复位魔数）
 
 
 import struct as _struct
+from typing import Optional as _Optional
 
 # mh10_version_block_t：magic u32 + board/sw/svn/git_hi/git_lo/struct_ver 6×u16
 # + reserved 24×u16（填充 0xFF），小端，共 64 B
@@ -327,9 +328,25 @@ class MH10RegisterMap:
     }
 
     @classmethod
+    def _front_name(cls, address: int) -> _Optional[str]:
+        """前板寄存器名：先查固定表，再按 V1.3.0 档位数组区间生成索引名。"""
+        name = cls._FRONT.get(address)
+        if name is not None:
+            return name
+        for base, label in (
+            (MH10_MB_FO_TUNE_GEAR_SPEED_BASE, "MB_FO_TUNE_GEAR_SPEED"),
+            (MH10_MB_FO_TUNE_GEAR_ZONE_BASE, "MB_FO_TUNE_GEAR_ZONE"),
+            (MH10_MB_FO_TUNE_GEAR_CURRENT_BASE, "MB_FO_TUNE_GEAR_CURRENT"),
+            (MH10_MB_FO_TUNE_GEAR_ACCEL_BASE, "MB_FO_TUNE_GEAR_ACCEL"),
+        ):
+            if base <= address < base + 8:
+                return f"{label}[{address - base}]"
+        return None
+
+    @classmethod
     def name(cls, slave_id: int, address: int) -> str:
         if slave_id == MH10_SLAVE_ID_FRONT_BOARD:
-            return cls._FRONT.get(address, cls._SYSTEM.get(address, f"REG_0x{address:02X}"))
+            return cls._front_name(address) or cls._SYSTEM.get(address, f"REG_0x{address:02X}")
         if slave_id == MH10_SLAVE_ID_BACK_BOARD:
             return cls._BACK.get(address, cls._SYSTEM.get(address, f"REG_0x{address:02X}"))
         return cls._SYSTEM.get(address, f"REG_0x{address:02X}")

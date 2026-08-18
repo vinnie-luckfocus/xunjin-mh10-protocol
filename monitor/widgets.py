@@ -236,7 +236,11 @@ class FrontBoardPanel(QtWidgets.QFrame):
         values.addWidget(self._dim("工具头型号 / 目标速度 / 目标方向"), 6, 0)
         self.targets = QtWidgets.QLabel("—")
         values.addWidget(self.targets, 7, 0)
-        values.setRowStretch(8, 1)
+
+        values.addWidget(self._dim("调参状态"), 8, 0)
+        self.tune = QtWidgets.QLabel("—")
+        values.addWidget(self.tune, 9, 0)
+        values.setRowStretch(10, 1)
         mid.addLayout(values, 1)
 
         self.speed_chart = TrendChart("工具头速度 (RPM)", {"速度": CYAN})
@@ -289,6 +293,22 @@ class FrontBoardPanel(QtWidgets.QFrame):
         self.targets.setText(
             f"型号 {fmt(front['info'])}  ·  目标速度 {fmt(front['target_speed'])}"
             f"  ·  目标方向 {fmt(front['target_dir'])}  ·  目标状态 {fmt(front['target_state'])}")
+
+        if front.get("tune_status") is None:
+            self.tune.setText("—")
+        else:
+            parts = [front["tune_status_name"]]
+            if front["tune_status"] == 2 and front.get("tune_gear") is not None:  # 手动运行中
+                parts.append(f"档{front['tune_gear']}")
+            if front.get("tune_cycle_counts") is not None:
+                parts.append(f"周期计数 {front['tune_cycle_counts']}")
+            if front.get("tune_zone_width") is not None:
+                parts.append(f"闭合区 {front['tune_zone_width']}步")
+            if front.get("tune_last_cycle_ms") is not None:
+                parts.append(f"最近往复 {front['tune_last_cycle_ms']}ms")
+            if front.get("tune_error"):
+                parts.append(f"失败：{front['tune_error_name']}")
+            self.tune.setText("  ·  ".join(parts))
 
         self.ind_pedal_insert.set_state(front["pedal_insert"])
         self.ind_pedal_switch.set_state(front["pedal_switch"])
@@ -537,3 +557,6 @@ class EventLogView(QtWidgets.QWidget):
         while self.table.rowCount() > self.MAX_ROWS:
             self.table.removeRow(0)
         self.table.scrollToBottom()
+
+    def clear(self) -> None:
+        self.table.setRowCount(0)

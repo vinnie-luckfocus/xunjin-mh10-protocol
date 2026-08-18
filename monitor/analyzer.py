@@ -55,6 +55,23 @@ from mh10_protocol import (
     MH10_MB_FO_TOOLHEAD_STATE_RW,
     MH10_MB_FO_TOOLHEAD_TARGET_SPEED_RW,
     MH10_MB_FO_TOOLHEAD_TARGET_DIR_RW,
+    MH10_MB_FO_TUNE_GEAR_SPEED_BASE,
+    MH10_MB_FO_TUNE_GEAR_ZONE_BASE,
+    MH10_MB_FO_TUNE_GEAR_CURRENT_BASE,
+    MH10_MB_FO_TUNE_GEAR_ACCEL_BASE,
+    MH10_MB_FO_TUNE_CMD,
+    MH10_MB_FO_TUNE_GEAR,
+    MH10_MB_FO_TUNE_STATUS,
+    MH10_MB_FO_TUNE_CYCLE_COUNTS_RO,
+    MH10_MB_FO_TUNE_ZONE_WIDTH_RO,
+    MH10_MB_FO_TUNE_LAST_CYCLE_MS_RO,
+    MH10_MB_FO_TUNE_REV_STAT_RO,
+    MH10_MB_FO_TUNE_ERROR_RO,
+    MH10_TUNE_CMD_AUTO_CALIB,
+    MH10_TUNE_CMD_MANUAL_START,
+    MH10_TUNE_CMD_MANUAL_STOP,
+    MH10_TUNE_CMD_RESTORE_DEFAULT,
+    MH10_TUNE_STATUS_FAILED,
     MH10_MB_BK_VERSION_RO,
     MH10_MB_BK_NP_IS_RO,
     MH10_MB_BK_NP_OS_RO,
@@ -149,6 +166,29 @@ BL_CMD_NAMES = {
     MH10_BL_CMD_ERASE: "ERASE",
     MH10_BL_CMD_VERIFY: "VERIFY",
     MH10_BL_CMD_JUMP: "JUMP",
+}
+
+TUNE_CMD_NAMES = {
+    MH10_TUNE_CMD_AUTO_CALIB: "自动标定",
+    MH10_TUNE_CMD_MANUAL_START: "手动运行启动",
+    MH10_TUNE_CMD_MANUAL_STOP: "手动运行停止",
+    MH10_TUNE_CMD_RESTORE_DEFAULT: "恢复默认参数",
+}
+
+TUNE_STATUS_NAMES = {
+    0: "空闲",
+    1: "标定中",
+    2: "手动运行中",
+    3: "标定完成",
+    4: "标定失败",
+}
+
+TUNE_ERROR_NAMES = {
+    0: "无",
+    1: "未插入切割器",
+    2: "堵转",
+    3: "超时",
+    4: "找不到闭合区",
 }
 
 
@@ -255,6 +295,9 @@ class BusAnalyzer:
 
         self.events: Deque[Event] = deque(maxlen=log_len)
         self.frame_log: Deque[FrameRecord] = deque(maxlen=log_len)
+        # 累计入队计数：deque 到 maxlen 后 len 不再增长，UI 靠它定位增量
+        self.frame_log_total = 0
+        self.event_log_total = 0
 
         # 趋势历史：(ts, value)
         self.hist_np_is: Deque[Tuple[float, float]] = deque(maxlen=history_len)
@@ -496,6 +539,20 @@ class BusAnalyzer:
                 self._event("info", "工具头异常已清除")
         elif sid == MH10_SLAVE_ID_BACK_BOARD and addr == MH10_MB_BK_TARGET_STATE_WO:
             self._event("info", f"负压目标状态 → {BACKBOARD_STATES.get(value, value)}")
+        elif sid == MH10_SLAVE_ID_FRONT_BOARD and addr == MH10_MB_FO_TUNE_CMD:
+            self._event("info", f"调参命令：{TUNE_CMD_NAMES.get(value, f'未知命令 0x{value:04X}')}")
+        elif sid == MH10_SLAVE_ID_FRONT_BOARD and addr == MH10_MB_FO_TUNE_STATUS:
+            name = TUNE_STATUS_NAMES.get(value, f"未知状态 {value}")
+            old_name = TUNE_STATUS_NAMES.get(old, old) if old is not None else "—"
+            extra = ""
+            if value == MH10_TUNE_STATUS_FAILED:
+                err = dev.registers.get(MH10_MB_FO_TUNE_ERROR_RO)
+                if err:
+                    extra = f"（{TUNE_ERROR_NAMES.get(err, err)}）"
+            level = "error" if value == MH10_TUNE_STATUS_FAILED else "info"
+            self._event(level, f"调参状态：{old_name} → {name}{extra}")
+        elif sid == MH10_SLAVE_ID_FRONT_BOARD and addr == MH10_MB_FO_TUNE_ERROR_RO and value != 0:
+            self._event("error", f"调参失败原因：{TUNE_ERROR_NAMES.get(value, value)}")
         elif addr == MH10_MB_REG_REBOOT and value == MH10_MODBUS_REBOOT_MAGIC:
             self._event("error", f"检测到下发给{dev.name}的复位魔数 0x5A5A")
         elif addr == MH10_MB_REG_IAP_ENTER and value == MH10_MODBUS_IAP_MAGIC:
@@ -582,6 +639,27 @@ class BusAnalyzer:
                 return f"({TOOLHEAD_EXCEPTIONS.get(value, '?')})"
             if addr == MH10_MB_FO_TOOLHEAD_SPEED_RO:
                 return f"({value * MH10_TOOLHEAD_SPEED_SCALE}RPM)"
+            if MH10_MB_FO_TUNE_GEAR_SPEED_BASE <= addr < MH10_MB_FO_TUNE_GEAR_SPEED_BASE + 8:
+                return f"(档{addr - MH10_MB_FO_TUNE_GEAR_SPEED_BASE} {value}RPM)"
+            if MH10_MB_FO_TUNE_GEAR_ZONE_BASE <= addr < MH10_MB_FO_TUNE_GEAR_ZONE_BASE + 8:
+                return f"(档{addr - MH10_MB_FO_TUNE_GEAR_ZONE_BASE} {value}步)"
+            if MH10_MB_FO_TUNE_GEAR_CURRENT_BASE <= addr < MH10_MB_FO_TUNE_GEAR_CURRENT_BASE + 8:
+                return f"(档{addr - MH10_MB_FO_TUNE_GEAR_CURRENT_BASE} {value / 10.0:.1f}A)"
+            if MH10_MB_FO_TUNE_GEAR_ACCEL_BASE <= addr < MH10_MB_FO_TUNE_GEAR_ACCEL_BASE + 8:
+                return f"(档{addr - MH10_MB_FO_TUNE_GEAR_ACCEL_BASE} {value}ms/1000rpm)"
+            if addr == MH10_MB_FO_TUNE_CMD:
+                return f"({TUNE_CMD_NAMES.get(value, '?')})"
+            if addr == MH10_MB_FO_TUNE_GEAR:
+                return f"(档{value})"
+            if addr == MH10_MB_FO_TUNE_STATUS:
+                return f"({TUNE_STATUS_NAMES.get(value, '?')})"
+            if addr == MH10_MB_FO_TUNE_ERROR_RO:
+                return f"({TUNE_ERROR_NAMES.get(value, '?')})"
+            if addr == MH10_MB_FO_TUNE_REV_STAT_RO:
+                edge = value & 0x1F
+                fixed_on = (value >> 5) & 0x1F
+                fixed_off = (value >> 10) & 0x1F
+                return f"(近20往复 沿采信{edge} 固定闭合{fixed_on} 固定未闭合{fixed_off})"
         if slave == MH10_SLAVE_ID_BACK_BOARD:
             if addr in (MH10_MB_BK_NP_IS_RO, MH10_MB_BK_NP_OS_RO):
                 return f"({value / MH10_NP_SCALE_FACTOR:.2f}kPa)"
@@ -598,9 +676,11 @@ class BusAnalyzer:
             ts=frame.ts_end, direction=direction, slave=frame.slave,
             summary=summary, hex=frame.hex, ok=frame.crc_ok,
         ))
+        self.frame_log_total += 1
 
     def _event(self, level: str, message: str) -> None:
         self.events.append(Event(ts=time.time(), level=level, message=message))
+        self.event_log_total += 1
 
     # ------------------------------------------------------------------
     # 快照（供 UI 读取，调用方需持锁或使用 snapshot()）
@@ -678,6 +758,17 @@ class BusAnalyzer:
                     "target_state": g(front, MH10_MB_FO_TOOLHEAD_STATE_RW),
                     "target_speed": g(front, MH10_MB_FO_TOOLHEAD_TARGET_SPEED_RW),
                     "target_dir": g(front, MH10_MB_FO_TOOLHEAD_TARGET_DIR_RW),
+                    "tune_status": g(front, MH10_MB_FO_TUNE_STATUS),
+                    "tune_status_name": TUNE_STATUS_NAMES.get(g(front, MH10_MB_FO_TUNE_STATUS), "—")
+                                        if g(front, MH10_MB_FO_TUNE_STATUS) is not None else "—",
+                    "tune_gear": g(front, MH10_MB_FO_TUNE_GEAR),
+                    "tune_cycle_counts": g(front, MH10_MB_FO_TUNE_CYCLE_COUNTS_RO),
+                    "tune_zone_width": g(front, MH10_MB_FO_TUNE_ZONE_WIDTH_RO),
+                    "tune_last_cycle_ms": g(front, MH10_MB_FO_TUNE_LAST_CYCLE_MS_RO),
+                    "tune_rev_stat": g(front, MH10_MB_FO_TUNE_REV_STAT_RO),
+                    "tune_error": g(front, MH10_MB_FO_TUNE_ERROR_RO),
+                    "tune_error_name": TUNE_ERROR_NAMES.get(g(front, MH10_MB_FO_TUNE_ERROR_RO), "—")
+                                       if g(front, MH10_MB_FO_TUNE_ERROR_RO) is not None else "—",
                 },
                 "back": {
                     "version": g(back, MH10_MB_BK_VERSION_RO),
@@ -697,7 +788,9 @@ class BusAnalyzer:
                     "speed": list(self.hist_speed),
                 },
                 "frame_log": list(self.frame_log),
+                "frame_log_total": self.frame_log_total,
                 "events": list(self.events),
+                "event_log_total": self.event_log_total,
             }
 
     def record_sensor_history(self, now: Optional[float] = None) -> None:
