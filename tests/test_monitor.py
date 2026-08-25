@@ -334,6 +334,20 @@ class TestDecode:
         assert any(e.level == "error" and "调参失败原因：找不到闭合区" in e.message
                    for e in snap["events"])
 
+    def test_cut_mode_decode(self):
+        """V1.4.0：前板 0x0C 切割模式语义注释（0=正转 1=反转 2=往复）。"""
+        an = BusAnalyzer()
+        for value, name in ((0, "正转"), (1, "反转"), (2, "往复"), (3, "?")):
+            feed_raw(an, make_write_single(2, 0x0C, value), ts=1.0 + value)
+            feed_raw(an, make_write_single(2, 0x0C, value), ts=1.005 + value)  # 响应回显
+        snap = an.snapshot()
+        req_summaries = [r.summary for r in snap["frame_log"] if r.direction == "REQ"]
+        assert any("MB_FO_TOOLHEAD_TARGET_DIR_RW = 0x0000(正转)" in s for s in req_summaries)
+        assert any("MB_FO_TOOLHEAD_TARGET_DIR_RW = 0x0001(反转)" in s for s in req_summaries)
+        assert any("MB_FO_TOOLHEAD_TARGET_DIR_RW = 0x0002(往复)" in s for s in req_summaries)
+        assert any("MB_FO_TOOLHEAD_TARGET_DIR_RW = 0x0003(?)" in s for s in req_summaries)
+        assert snap["front"]["target_dir"] == 3
+
 
 # ----------------------------------------------------------------------
 # headless 端到端：虚拟板 + 真实串口帧 + tee 进分析器
@@ -441,10 +455,14 @@ class TestGuiSmoke:
 
     def test_window_renders_and_updates(self, window):
         an = window.analyzer
+        values = [0] * 16
+        values[0x00] = 7   # RUNNING
+        values[0x0C] = 2   # 往复
         feed_raw(an, make_read_req(2, 0, 16), ts=time.time())
-        feed_raw(an, make_read_resp(2, [7] * 16), ts=time.time() + 0.01)
+        feed_raw(an, make_read_resp(2, values), ts=time.time() + 0.01)
         window._refresh()
         assert window.front_panel.state_label.text() == "RUNNING"
+        assert "目标方向 往复" in window.front_panel.targets.text()
         assert window.quality_panel._values["requests"].text() == "1"
         assert window.frame_log.table.rowCount() == 2
 

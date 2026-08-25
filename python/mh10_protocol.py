@@ -7,9 +7,9 @@ Xunjin MH10 Modbus 协议 Python 绑定。
 仿真器和协议文档示例。所有常量与 C 头文件保持严格一致。
 """
 
-# 协议版本（V1.3.0：新增前板电机调参寄存器区 0x20~0x4F，数组扩至 0x50）
+# 协议版本（V1.4.0：前板 0x0C 目标方向正式定义为三种切割模式）
 MH10_PROTOCOL_VERSION_MAJOR = 1
-MH10_PROTOCOL_VERSION_MINOR = 3
+MH10_PROTOCOL_VERSION_MINOR = 4
 MH10_PROTOCOL_VERSION_PATCH = 0
 MH10_PROTOCOL_VERSION = (MH10_PROTOCOL_VERSION_MAJOR << 8) | \
                         (MH10_PROTOCOL_VERSION_MINOR << 4)  | \
@@ -72,6 +72,13 @@ MH10_MB_FO_TOOLHEAD_READY_TO_SELFCHECK_WO = 0x0D
 MH10_MB_FO_TOOLHEAD_READY_TO_START_WO = 0x0E
 MH10_MB_FO_TOOLHEAD_PEDAL_DELAY_WO = 0x0F
 MH10_MB_FO_TOOLHEAD_CYCLE_COUNTS_RW = 0x10
+
+# 前板切割模式（写 MH10_MB_FO_TOOLHEAD_TARGET_DIR_RW，V1.4.0 定义）
+# 语义变化：V1.3.0 固件中 0/1 表示"往复起始方向"，V1.4.0 起
+# 0/1 为连续旋转方向，2 才是往复；box 与固件须同步升级，默认 0（正转）
+MH10_TOOLHEAD_CUT_MODE_FORWARD = 0  # 正转（连续旋转，默认）
+MH10_TOOLHEAD_CUT_MODE_REVERSE = 1  # 反转（连续旋转）
+MH10_TOOLHEAD_CUT_MODE_RECIP = 2    # 往复（速度规划往复切割）
 
 # 寄存器数组大小（V1.3.0 起 0x20 -> 0x50）
 MH10_MB_REG_COUNT = 0x50

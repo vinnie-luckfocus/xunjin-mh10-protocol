@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from .analyzer import DEVICE_NAMES, TOOLHEAD_STATES
+from .analyzer import DEVICE_NAMES, TOOLHEAD_STATES, TOOLHEAD_CUT_MODE_NAMES
 from .charts import TrendChart
 
 GREEN = "#2ecc71"
@@ -290,9 +290,15 @@ class FrontBoardPanel(QtWidgets.QFrame):
         def fmt(value, suffix=""):
             return "—" if value is None else f"{value}{suffix}"
 
+        def fmt_dir(value):
+            # V1.4.0：0=正转 1=反转 2=往复，未知值原样显示数字
+            if value is None:
+                return "—"
+            return TOOLHEAD_CUT_MODE_NAMES.get(value, str(value))
+
         self.targets.setText(
             f"型号 {fmt(front['info'])}  ·  目标速度 {fmt(front['target_speed'])}"
-            f"  ·  目标方向 {fmt(front['target_dir'])}  ·  目标状态 {fmt(front['target_state'])}")
+            f"  ·  目标方向 {fmt_dir(front['target_dir'])}  ·  目标状态 {fmt(front['target_state'])}")
 
         if front.get("tune_status") is None:
             self.tune.setText("—")

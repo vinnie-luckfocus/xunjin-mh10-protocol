@@ -2,8 +2,8 @@
 Copyright (C),  2024-2034 , XJMDT. Co., Ltd.
 File name: mh10_protocol.h
 Author: Vinnie.Zhou
-Version: V1.3.0
-Date: 2026/08/17
+Version: V1.4.0
+Date: 2026/08/25
 Contact: zhoushizheng331@gmail.com
 Description: Xunjin MH10 主控板与前后工控板 Modbus RTU 通信协议统一头文件。
              本文件为 C/C++ 双语言兼容，是主控板（a_box_app）与工控板
@@ -22,12 +22,12 @@ extern "C" {
 /**
  * @brief 协议版本（语义化版本，BCD 编码）。
  *
- * 当前为 V1.3.0，对应 0x0130（新增前板电机/往复运动调参寄存器区 0x20~0x4F，
- * 寄存器数组扩展至 0x50）。
+ * 当前为 V1.4.0，对应 0x0140（前板寄存器 0x0C 目标方向正式定义为
+ * 三种切割模式，见 mh10_toolhead_cut_mode_t）。
  * 该值同步写入系统寄存器 MH10_MB_REG_PROTOCOL_VERSION。
  */
 #define MH10_PROTOCOL_VERSION_MAJOR 1U
-#define MH10_PROTOCOL_VERSION_MINOR 3U
+#define MH10_PROTOCOL_VERSION_MINOR 4U
 #define MH10_PROTOCOL_VERSION_PATCH 0U
 #define MH10_PROTOCOL_VERSION       \
     ((uint16_t)((MH10_PROTOCOL_VERSION_MAJOR << 8) | \
@@ -131,7 +131,7 @@ typedef enum {
 
     MH10_MB_FO_TOOLHEAD_STATE_RW             = 0x0A, /*!< 工具头目标状态 */
     MH10_MB_FO_TOOLHEAD_TARGET_SPEED_RW      = 0x0B, /*!< 目标速度 */
-    MH10_MB_FO_TOOLHEAD_TARGET_DIR_RW        = 0x0C, /*!< 目标方向 */
+    MH10_MB_FO_TOOLHEAD_TARGET_DIR_RW        = 0x0C, /*!< 目标方向/切割模式（mh10_toolhead_cut_mode_t） */
     MH10_MB_FO_TOOLHEAD_READY_TO_SELFCHECK_WO = 0x0D, /*!< 自检确认 */
     MH10_MB_FO_TOOLHEAD_READY_TO_START_WO    = 0x0E, /*!< 启动/吸引确认 */
     MH10_MB_FO_TOOLHEAD_PEDAL_DELAY_WO       = 0x0F, /*!< 踏板延时配置 */
@@ -332,6 +332,19 @@ typedef enum {
     MH10_TOOLHEAD_STATE_ATTRACTING          = 8,
     MH10_TOOLHEAD_STATE_EXCEPTION           = 9,
 } mh10_toolhead_state_t;
+
+/**
+ * @brief 前板切割模式（写 MH10_MB_FO_TOOLHEAD_TARGET_DIR_RW，V1.4.0 定义）。
+ *
+ * 注意语义变化：V1.3.0 固件中 0/1 表示"往复起始方向"，V1.4.0 起
+ * 0/1 改为连续旋转方向，2 才是往复（即 V1.3.0 固件的现有行为）。
+ * box 与固件须同步升级，默认值为 0（正转）。
+ */
+typedef enum {
+    MH10_TOOLHEAD_CUT_MODE_FORWARD = 0, /*!< 正转（连续旋转，默认） */
+    MH10_TOOLHEAD_CUT_MODE_REVERSE = 1, /*!< 反转（连续旋转） */
+    MH10_TOOLHEAD_CUT_MODE_RECIP   = 2, /*!< 往复（速度规划往复切割） */
+} mh10_toolhead_cut_mode_t;
 
 /**
  * @brief 前板工具头异常码。

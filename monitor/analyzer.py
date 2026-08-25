@@ -55,6 +55,9 @@ from mh10_protocol import (
     MH10_MB_FO_TOOLHEAD_STATE_RW,
     MH10_MB_FO_TOOLHEAD_TARGET_SPEED_RW,
     MH10_MB_FO_TOOLHEAD_TARGET_DIR_RW,
+    MH10_TOOLHEAD_CUT_MODE_FORWARD,
+    MH10_TOOLHEAD_CUT_MODE_REVERSE,
+    MH10_TOOLHEAD_CUT_MODE_RECIP,
     MH10_MB_FO_TUNE_GEAR_SPEED_BASE,
     MH10_MB_FO_TUNE_GEAR_ZONE_BASE,
     MH10_MB_FO_TUNE_GEAR_CURRENT_BASE,
@@ -144,6 +147,13 @@ BACKBOARD_STATES = {
     0: "CALIBRATION",
     1: "CLOSED",
     2: "OPEN",
+}
+
+# V1.4.0：前板 0x0C 目标方向/切割模式
+TOOLHEAD_CUT_MODE_NAMES = {
+    MH10_TOOLHEAD_CUT_MODE_FORWARD: "正转",
+    MH10_TOOLHEAD_CUT_MODE_REVERSE: "反转",
+    MH10_TOOLHEAD_CUT_MODE_RECIP: "往复",
 }
 
 BL_STATUS_NAMES = {
@@ -639,6 +649,8 @@ class BusAnalyzer:
                 return f"({TOOLHEAD_EXCEPTIONS.get(value, '?')})"
             if addr == MH10_MB_FO_TOOLHEAD_SPEED_RO:
                 return f"({value * MH10_TOOLHEAD_SPEED_SCALE}RPM)"
+            if addr == MH10_MB_FO_TOOLHEAD_TARGET_DIR_RW:
+                return f"({TOOLHEAD_CUT_MODE_NAMES.get(value, '?')})"
             if MH10_MB_FO_TUNE_GEAR_SPEED_BASE <= addr < MH10_MB_FO_TUNE_GEAR_SPEED_BASE + 8:
                 return f"(档{addr - MH10_MB_FO_TUNE_GEAR_SPEED_BASE} {value}RPM)"
             if MH10_MB_FO_TUNE_GEAR_ZONE_BASE <= addr < MH10_MB_FO_TUNE_GEAR_ZONE_BASE + 8:

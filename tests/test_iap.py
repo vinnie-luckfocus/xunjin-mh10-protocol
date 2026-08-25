@@ -124,6 +124,9 @@ class TestHeaderConsistency:
         "MH10_BL_CMD_ERASE",
         "MH10_BL_CMD_VERIFY",
         "MH10_BL_CMD_JUMP",
+        "MH10_TOOLHEAD_CUT_MODE_FORWARD",
+        "MH10_TOOLHEAD_CUT_MODE_REVERSE",
+        "MH10_TOOLHEAD_CUT_MODE_RECIP",
     ]
 
     def test_constants_match_header(self):
@@ -142,7 +145,7 @@ class TestHeaderConsistency:
             (header["MH10_PROTOCOL_VERSION_MAJOR"] << 8)
             | (header["MH10_PROTOCOL_VERSION_MINOR"] << 4)
             | header["MH10_PROTOCOL_VERSION_PATCH"]
-        ) == 0x0130
+        ) == 0x0140
         assert m.MH10_APP_MAX_SIZE == 55296
         assert m.MH10_APP_MAX_SIZE == m.MH10_DEVICE_ID_PAGE_ADDR - m.MH10_APP_BASE
         assert m.MH10_VERSION_BLOCK_IMAGE_OFFSET == \
