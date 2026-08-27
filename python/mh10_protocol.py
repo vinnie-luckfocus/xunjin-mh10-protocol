@@ -7,9 +7,9 @@ Xunjin MH10 Modbus 协议 Python 绑定。
 仿真器和协议文档示例。所有常量与 C 头文件保持严格一致。
 """
 
-# 协议版本（V1.5.0：新增前板转速/驱动器异常检测屏蔽寄存器 0x12）
+# 协议版本（V1.6.0：新增前板正/反转电流曲线调节区 0x50~0x6C，数组扩至 0x70）
 MH10_PROTOCOL_VERSION_MAJOR = 1
-MH10_PROTOCOL_VERSION_MINOR = 5
+MH10_PROTOCOL_VERSION_MINOR = 6
 MH10_PROTOCOL_VERSION_PATCH = 0
 MH10_PROTOCOL_VERSION = (MH10_PROTOCOL_VERSION_MAJOR << 8) | \
                         (MH10_PROTOCOL_VERSION_MINOR << 4)  | \
@@ -83,8 +83,8 @@ MH10_TOOLHEAD_CUT_MODE_FORWARD = 0  # 正转（连续旋转，默认）
 MH10_TOOLHEAD_CUT_MODE_REVERSE = 1  # 反转（连续旋转）
 MH10_TOOLHEAD_CUT_MODE_RECIP = 2    # 往复（速度规划往复切割）
 
-# 寄存器数组大小（V1.3.0 起 0x20 -> 0x50）
-MH10_MB_REG_COUNT = 0x50
+# 寄存器数组大小（V1.3.0 起 0x20 -> 0x50，V1.6.0 起 0x50 -> 0x70）
+MH10_MB_REG_COUNT = 0x70
 
 # 前板电机/往复运动调参寄存器区（V1.3.0，0x20~0x4F）
 # 档位 i=0~7：jog rpm 300/600/900/1200/1500/2000/2500/3000，设定值=jog×3
@@ -133,6 +133,49 @@ MH10_TUNE_ERROR_NO_CUTTER = 1
 MH10_TUNE_ERROR_STALL = 2
 MH10_TUNE_ERROR_TIMEOUT = 3
 MH10_TUNE_ERROR_NO_ZONE = 4
+
+# 前板正/反转电流曲线调节区（V1.6.0，0x50~0x6C）
+# 曲线模型：3 个速度阈值（工具头输出轴 rpm）把速度域分成 4 段阶梯，
+# speed<=LOW 用 CUR[0]，<=MED 用 CUR[1]，<=HIGH 用 CUR[2]，否则用 CUR[3]，无插值。
+# 共四套曲线（驱动器型号 × 方向），每套占 7 个寄存器：
+#   +0/+1/+2 RW 速度阈值 LOW/MED/HIGH（rpm，固件钳制为单调递增）
+#   +3~+6    RW 峰值电流 CUR[0..3]（0.1A，钳制到型号上限 522→22 / 556→25）
+# 写入立即生效（易失，不擦写 flash，持久化由 box 侧负责）
+MH10_MB_FO_CURVE_FWD_522_BASE = 0x50  # RW DM2C522 正转曲线基址（0x50~0x56）
+MH10_MB_FO_CURVE_REV_522_BASE = 0x57  # RW DM2C522 反转曲线基址（0x57~0x5D）
+MH10_MB_FO_CURVE_FWD_556_BASE = 0x5E  # RW DM2C556 正转曲线基址（0x5E~0x64）
+MH10_MB_FO_CURVE_REV_556_BASE = 0x65  # RW DM2C556 反转曲线基址（0x65~0x6B）
+MH10_MB_FO_CURVE_SUPPORT_RO = 0x6C    # RO 支持本功能的固件固定返回 MH10_CURVE_SUPPORT_MAGIC；
+                                      # 旧固件读该地址返回非法地址异常，主机据此优雅降级
+# 0x6D~0x6F 保留
+
+# 单套曲线的阈值个数 / 电流档数 / 寄存器总数
+MH10_MB_FO_CURVE_THR_NUM = 3
+MH10_MB_FO_CURVE_CUR_NUM = 4
+MH10_MB_FO_CURVE_REG_NUM = 7
+
+# 曲线调节支持标识魔数（读 MH10_MB_FO_CURVE_SUPPORT_RO）
+MH10_CURVE_SUPPORT_MAGIC = 0xC0DE
+
+# 曲线默认值（与 V1.5.0 固件编译期行为一致，box 侧持久化缺省用）
+MH10_CURVE_DEF_THR_LOW = 1000    # rpm
+MH10_CURVE_DEF_THR_MED = 4000    # rpm
+MH10_CURVE_DEF_THR_HIGH = 7000   # rpm
+MH10_CURVE_DEF_CUR_522_0 = 16    # 0.1A
+MH10_CURVE_DEF_CUR_522_1 = 18
+MH10_CURVE_DEF_CUR_522_2 = 20
+MH10_CURVE_DEF_CUR_522_3 = 22
+MH10_CURVE_DEF_CUR_556_0 = 18    # 0.1A
+MH10_CURVE_DEF_CUR_556_1 = 20
+MH10_CURVE_DEF_CUR_556_2 = 23
+MH10_CURVE_DEF_CUR_556_3 = 25
+
+# 曲线默认值列表（正/反转相同，供虚拟板与工具直接铺默认值）
+MH10_CURVE_DEFAULT_THR = [MH10_CURVE_DEF_THR_LOW, MH10_CURVE_DEF_THR_MED, MH10_CURVE_DEF_THR_HIGH]
+MH10_CURVE_DEFAULT_CUR_522 = [MH10_CURVE_DEF_CUR_522_0, MH10_CURVE_DEF_CUR_522_1,
+                              MH10_CURVE_DEF_CUR_522_2, MH10_CURVE_DEF_CUR_522_3]
+MH10_CURVE_DEFAULT_CUR_556 = [MH10_CURVE_DEF_CUR_556_0, MH10_CURVE_DEF_CUR_556_1,
+                              MH10_CURVE_DEF_CUR_556_2, MH10_CURVE_DEF_CUR_556_3]
 
 # 后板寄存器
 MH10_MB_BK_VERSION_RO = 0x00
@@ -316,6 +359,7 @@ class MH10RegisterMap:
         MH10_MB_FO_TUNE_LAST_CYCLE_MS_RO: "MB_FO_TUNE_LAST_CYCLE_MS_RO",
         MH10_MB_FO_TUNE_REV_STAT_RO: "MB_FO_TUNE_REV_STAT_RO",
         MH10_MB_FO_TUNE_ERROR_RO: "MB_FO_TUNE_ERROR_RO",
+        MH10_MB_FO_CURVE_SUPPORT_RO: "MB_FO_CURVE_SUPPORT_RO",
     }
 
     _BACK = {
@@ -339,7 +383,7 @@ class MH10RegisterMap:
 
     @classmethod
     def _front_name(cls, address: int) -> _Optional[str]:
-        """前板寄存器名：先查固定表，再按 V1.3.0 档位数组区间生成索引名。"""
+        """前板寄存器名：先查固定表，再按 V1.3.0 档位数组 / V1.6.0 曲线区区间生成索引名。"""
         name = cls._FRONT.get(address)
         if name is not None:
             return name
@@ -350,6 +394,14 @@ class MH10RegisterMap:
             (MH10_MB_FO_TUNE_GEAR_ACCEL_BASE, "MB_FO_TUNE_GEAR_ACCEL"),
         ):
             if base <= address < base + 8:
+                return f"{label}[{address - base}]"
+        for base, label in (
+            (MH10_MB_FO_CURVE_FWD_522_BASE, "MB_FO_CURVE_FWD_522"),
+            (MH10_MB_FO_CURVE_REV_522_BASE, "MB_FO_CURVE_REV_522"),
+            (MH10_MB_FO_CURVE_FWD_556_BASE, "MB_FO_CURVE_FWD_556"),
+            (MH10_MB_FO_CURVE_REV_556_BASE, "MB_FO_CURVE_REV_556"),
+        ):
+            if base <= address < base + MH10_MB_FO_CURVE_REG_NUM:
                 return f"{label}[{address - base}]"
         return None
 

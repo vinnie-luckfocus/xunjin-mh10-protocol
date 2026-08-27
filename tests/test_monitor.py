@@ -348,6 +348,26 @@ class TestDecode:
         assert any("MB_FO_TOOLHEAD_TARGET_DIR_RW = 0x0003(?)" in s for s in req_summaries)
         assert snap["front"]["target_dir"] == 3
 
+    def test_curve_registers_decode(self):
+        """V1.6.0 曲线区：寄存器索引命名、阈值/电流语义注释与 SUPPORT_RO 标识。"""
+        assert MH10RegisterMap.name(2, 0x50) == "MB_FO_CURVE_FWD_522[0]"
+        assert MH10RegisterMap.name(2, 0x56) == "MB_FO_CURVE_FWD_522[6]"
+        assert MH10RegisterMap.name(2, 0x57) == "MB_FO_CURVE_REV_522[0]"
+        assert MH10RegisterMap.name(2, 0x5E) == "MB_FO_CURVE_FWD_556[0]"
+        assert MH10RegisterMap.name(2, 0x6B) == "MB_FO_CURVE_REV_556[6]"
+        assert MH10RegisterMap.name(2, 0x6C) == "MB_FO_CURVE_SUPPORT_RO"
+        an = BusAnalyzer()
+        feed_raw(an, make_read_req(2, 0x50, 0x1D), ts=1.000)  # 0x50~0x6C 整区
+        values = [0] * 0x1D
+        values[0x00] = 1000     # 522正转 阈值LOW
+        values[0x03] = 16       # 522正转 CUR[0] = 1.6A
+        values[0x1C] = 0xC0DE   # SUPPORT_RO
+        feed_raw(an, make_read_resp(2, values), ts=1.010)
+        resp_summary = an.snapshot()["frame_log"][1].summary
+        assert "MB_FO_CURVE_FWD_522[0]=0x03E8(522正转 阈值LOW 1000RPM)" in resp_summary
+        assert "MB_FO_CURVE_FWD_522[3]=0x0010(522正转 CUR[0] 1.6A)" in resp_summary
+        assert "MB_FO_CURVE_SUPPORT_RO=0xC0DE(支持电流曲线调节)" in resp_summary
+
 
 # ----------------------------------------------------------------------
 # headless 端到端：虚拟板 + 真实串口帧 + tee 进分析器

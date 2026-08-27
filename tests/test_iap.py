@@ -91,6 +91,27 @@ class TestHeaderConsistency:
         "MH10_MODBUS_IAP_MAGIC",
         "MH10_MB_REG_IAP_ENTER",
         "MH10_MB_FO_ALARM_SUPPRESS_RW",
+        "MH10_MB_REG_COUNT",
+        "MH10_MB_FO_CURVE_FWD_522_BASE",
+        "MH10_MB_FO_CURVE_REV_522_BASE",
+        "MH10_MB_FO_CURVE_FWD_556_BASE",
+        "MH10_MB_FO_CURVE_REV_556_BASE",
+        "MH10_MB_FO_CURVE_SUPPORT_RO",
+        "MH10_MB_FO_CURVE_THR_NUM",
+        "MH10_MB_FO_CURVE_CUR_NUM",
+        "MH10_MB_FO_CURVE_REG_NUM",
+        "MH10_CURVE_SUPPORT_MAGIC",
+        "MH10_CURVE_DEF_THR_LOW",
+        "MH10_CURVE_DEF_THR_MED",
+        "MH10_CURVE_DEF_THR_HIGH",
+        "MH10_CURVE_DEF_CUR_522_0",
+        "MH10_CURVE_DEF_CUR_522_1",
+        "MH10_CURVE_DEF_CUR_522_2",
+        "MH10_CURVE_DEF_CUR_522_3",
+        "MH10_CURVE_DEF_CUR_556_0",
+        "MH10_CURVE_DEF_CUR_556_1",
+        "MH10_CURVE_DEF_CUR_556_2",
+        "MH10_CURVE_DEF_CUR_556_3",
         "MH10_FLASH_BASE",
         "MH10_BL_BASE",
         "MH10_BL_SIZE",
@@ -146,7 +167,9 @@ class TestHeaderConsistency:
             (header["MH10_PROTOCOL_VERSION_MAJOR"] << 8)
             | (header["MH10_PROTOCOL_VERSION_MINOR"] << 4)
             | header["MH10_PROTOCOL_VERSION_PATCH"]
-        ) == 0x0150
+        ) == 0x0160
+        assert m.MH10_MB_REG_COUNT == 0x70
+        assert m.MH10_MB_FO_CURVE_SUPPORT_RO < m.MH10_MB_REG_COUNT
         assert m.MH10_APP_MAX_SIZE == 55296
         assert m.MH10_APP_MAX_SIZE == m.MH10_DEVICE_ID_PAGE_ADDR - m.MH10_APP_BASE
         assert m.MH10_VERSION_BLOCK_IMAGE_OFFSET == \

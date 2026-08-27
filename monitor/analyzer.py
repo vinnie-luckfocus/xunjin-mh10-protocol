@@ -70,6 +70,14 @@ from mh10_protocol import (
     MH10_MB_FO_TUNE_LAST_CYCLE_MS_RO,
     MH10_MB_FO_TUNE_REV_STAT_RO,
     MH10_MB_FO_TUNE_ERROR_RO,
+    MH10_MB_FO_CURVE_FWD_522_BASE,
+    MH10_MB_FO_CURVE_REV_522_BASE,
+    MH10_MB_FO_CURVE_FWD_556_BASE,
+    MH10_MB_FO_CURVE_REV_556_BASE,
+    MH10_MB_FO_CURVE_SUPPORT_RO,
+    MH10_MB_FO_CURVE_THR_NUM,
+    MH10_MB_FO_CURVE_REG_NUM,
+    MH10_CURVE_SUPPORT_MAGIC,
     MH10_TUNE_CMD_AUTO_CALIB,
     MH10_TUNE_CMD_MANUAL_START,
     MH10_TUNE_CMD_MANUAL_STOP,
@@ -200,6 +208,16 @@ TUNE_ERROR_NAMES = {
     3: "超时",
     4: "找不到闭合区",
 }
+
+# V1.6.0：前板正/反转电流曲线调节区（0x50~0x6B，每套 7 寄存器：
+# +0/+1/+2 速度阈值 LOW/MED/HIGH rpm，+3~+6 峰值电流 CUR[0..3] 0.1A）
+CURVE_REGIONS = (
+    (MH10_MB_FO_CURVE_FWD_522_BASE, "522正转"),
+    (MH10_MB_FO_CURVE_REV_522_BASE, "522反转"),
+    (MH10_MB_FO_CURVE_FWD_556_BASE, "556正转"),
+    (MH10_MB_FO_CURVE_REV_556_BASE, "556反转"),
+)
+CURVE_THR_NAMES = ("LOW", "MED", "HIGH")
 
 
 @dataclass
@@ -672,6 +690,15 @@ class BusAnalyzer:
                 fixed_on = (value >> 5) & 0x1F
                 fixed_off = (value >> 10) & 0x1F
                 return f"(近20往复 沿采信{edge} 固定闭合{fixed_on} 固定未闭合{fixed_off})"
+            if addr == MH10_MB_FO_CURVE_SUPPORT_RO:
+                return ("(支持电流曲线调节)" if value == MH10_CURVE_SUPPORT_MAGIC
+                        else f"(曲线支持标识异常 0x{value:04X})")
+            for base, label in CURVE_REGIONS:
+                if base <= addr < base + MH10_MB_FO_CURVE_REG_NUM:
+                    off = addr - base
+                    if off < MH10_MB_FO_CURVE_THR_NUM:
+                        return f"({label} 阈值{CURVE_THR_NAMES[off]} {value}RPM)"
+                    return f"({label} CUR[{off - MH10_MB_FO_CURVE_THR_NUM}] {value / 10.0:.1f}A)"
         if slave == MH10_SLAVE_ID_BACK_BOARD:
             if addr in (MH10_MB_BK_NP_IS_RO, MH10_MB_BK_NP_OS_RO):
                 return f"({value / MH10_NP_SCALE_FACTOR:.2f}kPa)"

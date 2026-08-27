@@ -2,7 +2,7 @@
 Copyright (C),  2024-2034 , XJMDT. Co., Ltd.
 File name: mh10_protocol.h
 Author: Vinnie.Zhou
-Version: V1.5.0
+Version: V1.6.0
 Date: 2026/08/27
 Contact: zhoushizheng331@gmail.com
 Description: Xunjin MH10 主控板与前后工控板 Modbus RTU 通信协议统一头文件。
@@ -22,12 +22,13 @@ extern "C" {
 /**
  * @brief 协议版本（语义化版本，BCD 编码）。
  *
- * 当前为 V1.5.0，对应 0x0150（新增前板转速/驱动器异常检测屏蔽寄存器
- * MH10_MB_FO_ALARM_SUPPRESS_RW 0x12）。
+ * 当前为 V1.6.0，对应 0x0160（新增前板正/反转电流曲线调节区
+ * 0x50~0x6C：DM2C522/DM2C556 × 正转/反转 共四套分段阶梯曲线，
+ * 寄存器数组上限由 0x50 扩展至 0x70）。
  * 该值同步写入系统寄存器 MH10_MB_REG_PROTOCOL_VERSION。
  */
 #define MH10_PROTOCOL_VERSION_MAJOR 1U
-#define MH10_PROTOCOL_VERSION_MINOR 5U
+#define MH10_PROTOCOL_VERSION_MINOR 6U
 #define MH10_PROTOCOL_VERSION_PATCH 0U
 #define MH10_PROTOCOL_VERSION       \
     ((uint16_t)((MH10_PROTOCOL_VERSION_MAJOR << 8) | \
@@ -39,9 +40,11 @@ extern "C" {
  *
  * V1.3.0 起从 0x20 扩展至 0x50（地址 0x00 ~ 0x4F）：
  * 0x00~0x1F 为原有业务/系统区，0x20~0x4F 为前板电机调参区
- * （后板不使用调参区，读返回 0、写忽略）。老版本主机不访问新区，向下兼容。
+ * （后板不使用调参区，读返回 0、写忽略）。
+ * V1.6.0 起扩展至 0x70（地址 0x00 ~ 0x6F）：0x50~0x6C 为前板
+ * 正/反转电流曲线调节区，0x6D~0x6F 保留。老版本主机不访问新区，向下兼容。
  */
-#define MH10_MB_REG_COUNT 0x50U
+#define MH10_MB_REG_COUNT 0x70U
 
 /**
  * @brief Modbus RTU 物理层参数。
@@ -184,6 +187,64 @@ typedef enum {
                                                  bit10-14 O（固定点开关未闭合）数 */
     MH10_MB_FO_TUNE_ERROR_RO        = 0x4F, /*!< RO mh10_tune_error_t 最近失败原因 */
 } mh10_mb_front_tune_reg_t;
+
+/**
+ * @brief 前板正/反转电流曲线调节区（V1.6.0 新增，0x50~0x6C）。
+ *
+ * 用途：box 系统维护"正反转校准"页面对连续旋转模式的 速度→峰值电流
+ * 分段阶梯曲线在线调参。曲线模型与固件现有模型一致：
+ *   3 个速度阈值（工具头输出轴 rpm）把速度域分成 4 段，每段一档峰值
+ *   电流（0.1A）：speed<=LOW 用 CUR[0]，<=MED 用 CUR[1]，<=HIGH 用
+ *   CUR[2]，否则用 CUR[3]。无插值，纯阶梯。
+ *
+ * 共四套曲线（驱动器型号 × 旋转方向）：
+ *   DM2C522 正转 / DM2C522 反转 / DM2C556 正转 / DM2C556 反转。
+ * 运行时按实际检测到的 DM2C 型号与当前方向选一套。
+ *
+ * 每套曲线占 7 个寄存器（基址 + 偏移）：
+ *   +0/+1/+2  RW 速度阈值 LOW/MED/HIGH（rpm，必须单调递增，写入时固件钳制排序）
+ *   +3/+4/+5/+6 RW 峰值电流 CUR[0..3]（0.1A，钳制到该驱动器型号上限：
+ *                522→22，556→25）
+ *
+ * 默认值（正/反转相同，即 V1.5.0 及以前固件的编译期行为）：
+ *   阈值 1000/4000/7000 rpm
+ *   522 电流 16/18/20/22，556 电流 18/20/23/25
+ *
+ * 写寄存器立即生效（易失，不擦写 flash；持久化由 box 侧 sys.ini 负责）。
+ */
+typedef enum {
+    MH10_MB_FO_CURVE_FWD_522_BASE = 0x50, /*!< RW DM2C522 正转曲线基址（0x50~0x56） */
+    MH10_MB_FO_CURVE_REV_522_BASE = 0x57, /*!< RW DM2C522 反转曲线基址（0x57~0x5D） */
+    MH10_MB_FO_CURVE_FWD_556_BASE = 0x5E, /*!< RW DM2C556 正转曲线基址（0x5E~0x64） */
+    MH10_MB_FO_CURVE_REV_556_BASE = 0x65, /*!< RW DM2C556 反转曲线基址（0x65~0x6B） */
+
+    MH10_MB_FO_CURVE_SUPPORT_RO   = 0x6C, /*!< RO 曲线调节支持标识：支持本功能的固件
+                                               固定返回 MH10_CURVE_SUPPORT_MAGIC；
+                                               旧固件（REG_COUNT=0x50）读该地址返回
+                                               非法地址异常，主机据此优雅降级 */
+    /* 0x6D~0x6F 保留 */
+} mh10_mb_front_curve_reg_t;
+
+/** @brief 单套曲线的阈值个数 / 电流档数 / 寄存器总数。 */
+#define MH10_MB_FO_CURVE_THR_NUM   3U
+#define MH10_MB_FO_CURVE_CUR_NUM   4U
+#define MH10_MB_FO_CURVE_REG_NUM   7U
+
+/** @brief 曲线调节支持标识魔数（读 MH10_MB_FO_CURVE_SUPPORT_RO）。 */
+#define MH10_CURVE_SUPPORT_MAGIC   0xC0DEU
+
+/** @brief 曲线默认值（与 V1.5.0 固件编译期行为一致，box 侧持久化缺省用）。 */
+#define MH10_CURVE_DEF_THR_LOW     1000U  /*!< rpm */
+#define MH10_CURVE_DEF_THR_MED     4000U  /*!< rpm */
+#define MH10_CURVE_DEF_THR_HIGH    7000U  /*!< rpm */
+#define MH10_CURVE_DEF_CUR_522_0   16U    /*!< 0.1A */
+#define MH10_CURVE_DEF_CUR_522_1   18U
+#define MH10_CURVE_DEF_CUR_522_2   20U
+#define MH10_CURVE_DEF_CUR_522_3   22U
+#define MH10_CURVE_DEF_CUR_556_0   18U
+#define MH10_CURVE_DEF_CUR_556_1   20U
+#define MH10_CURVE_DEF_CUR_556_2   23U
+#define MH10_CURVE_DEF_CUR_556_3   25U
 
 /** @brief 调参命令（写 MH10_MB_FO_TUNE_CMD）。 */
 typedef enum {
@@ -416,6 +477,7 @@ MH10_CTASSERT(MH10_MB_FO_TUNE_ERROR_RO < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_BK_TARGET_STATE_WO < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_REG_IAP_ENTER < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_FO_ALARM_SUPPRESS_RW < MH10_MB_REG_COUNT);
+MH10_CTASSERT(MH10_MB_FO_CURVE_SUPPORT_RO < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_REG_PROTOCOL_VERSION < MH10_MB_REG_COUNT);
 MH10_CTASSERT(sizeof(mh10_version_block_t) == MH10_VERSION_BLOCK_SIZE);
 
