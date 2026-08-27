@@ -1,4 +1,4 @@
-# Xunjin MH10 Modbus RTU 通信协议规范 V1.4.0
+# Xunjin MH10 Modbus RTU 通信协议规范 V1.5.0
 
 ## 1. 概述
 
@@ -65,7 +65,7 @@
 | 0x1A | MH10_MB_REG_HW_VERSION | RO | 0x0100 | 硬件版本 |
 | 0x1B | MH10_MB_REG_SW_VERSION | RO | - | 软件版本 |
 | 0x1C | MH10_MB_REG_SVN_NUM | RO | - | SVN 版本号 |
-| 0x1D | MH10_MB_REG_PROTOCOL_VERSION | RO | 0x0120 | 协议版本 V1.2.0 |
+| 0x1D | MH10_MB_REG_PROTOCOL_VERSION | RO | 0x0150 | 协议版本 V1.5.0 |
 | 0x1E | MH10_MB_REG_GIT_HASH_HI | RO | - | 固件 git 提交号高 16 位（短哈希前 4 位 hex，按 hex 数值解读） |
 | 0x1F | MH10_MB_REG_GIT_HASH_LO | RO | - | 固件 git 提交号低 16 位（短哈希第 5~8 位 hex）。完整显示：`printf("%04x%04x", HI, LO)` |
 
@@ -90,6 +90,7 @@
 | 0x0E | MH10_MB_FO_TOOLHEAD_READY_TO_START_WO | WO | 启动/吸引确认 |
 | 0x0F | MH10_MB_FO_TOOLHEAD_PEDAL_DELAY_WO | WO | 踏板延时配置 |
 | 0x10 | MH10_MB_FO_TOOLHEAD_CYCLE_COUNTS_RW | RW | 切割往复周期计数（两次 HEAD_SWITCH 闭合沿间编码器计数） |
+| 0x12 | MH10_MB_FO_ALARM_SUPPRESS_RW | RW | 异常检测屏蔽（V1.5.0）：bit0=1 屏蔽转速/驱动器异常检测——连续/往复转速判据与驱动器故障锁存检测到异常时仅打印日志，不置异常码、不进 EXCEPTION 停机（**屏蔽后电机不停机保护失效**）。上电默认 0=检测开启，写入立即生效，易失不擦 flash（持久化由 box 侧负责） |
 
 ### 5.2.1 前板调参寄存器区（V1.3.0 新增，0x20~0x4F）
 
@@ -276,6 +277,7 @@ V1.2.0 起，前板/后板支持通过 Modbus 总线进行 IAP（In-Application 
 | V1.2.0 | 2026/08/04 | 新增 IAP/bootloader 固件升级：系统寄存器 0x11（写入 0xB007 进入 bootloader）；定义 flash 布局与 64 B app 版本块（magic "MH10" 作 app 有效标志）；新增 bootloader 模式寄存器映射（0x00~0x07 + 数据窗口 0x10~0x4F）及擦除/烧写/校验/跳转升级流程 |
 | V1.3.0 | 2026/08/17 | 寄存器数组 0x20 → 0x50；新增前板电机/往复运动调参寄存器区 0x20~0x4F（8 档速度/减速区/电流/加速时间 + 全局位置参数 + 自动标定/手动运行命令与状态），供 box 电机调参页使用 |
 | V1.4.0 | 2026/08/25 | 前板寄存器 0x0C（目标方向）扩展为三种切割模式：0=正转（连续旋转，默认）、1=反转（连续旋转）、2=往复（速度规划往复切割，即 V1.3.0 固件现有行为）。**Break**：0/1 语义由"往复起始方向"改为连续旋转方向，box 与固件须同步升级 |
+| V1.5.0 | 2026/08/27 | 新增前板寄存器 0x12（MH10_MB_FO_ALARM_SUPPRESS_RW）异常检测屏蔽：bit0=1 时连续/往复转速判据与驱动器故障锁存不再置异常、不进 EXCEPTION 软停，仅保留日志；上电默认 0=检测开启，易失不擦 flash，持久化由 box 侧负责 |
 
 ## 12. 引用与约束
 

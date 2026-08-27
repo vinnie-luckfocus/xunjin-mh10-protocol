@@ -2,8 +2,8 @@
 Copyright (C),  2024-2034 , XJMDT. Co., Ltd.
 File name: mh10_protocol.h
 Author: Vinnie.Zhou
-Version: V1.4.0
-Date: 2026/08/25
+Version: V1.5.0
+Date: 2026/08/27
 Contact: zhoushizheng331@gmail.com
 Description: Xunjin MH10 主控板与前后工控板 Modbus RTU 通信协议统一头文件。
              本文件为 C/C++ 双语言兼容，是主控板（a_box_app）与工控板
@@ -22,12 +22,12 @@ extern "C" {
 /**
  * @brief 协议版本（语义化版本，BCD 编码）。
  *
- * 当前为 V1.4.0，对应 0x0140（前板寄存器 0x0C 目标方向正式定义为
- * 三种切割模式，见 mh10_toolhead_cut_mode_t）。
+ * 当前为 V1.5.0，对应 0x0150（新增前板转速/驱动器异常检测屏蔽寄存器
+ * MH10_MB_FO_ALARM_SUPPRESS_RW 0x12）。
  * 该值同步写入系统寄存器 MH10_MB_REG_PROTOCOL_VERSION。
  */
 #define MH10_PROTOCOL_VERSION_MAJOR 1U
-#define MH10_PROTOCOL_VERSION_MINOR 4U
+#define MH10_PROTOCOL_VERSION_MINOR 5U
 #define MH10_PROTOCOL_VERSION_PATCH 0U
 #define MH10_PROTOCOL_VERSION       \
     ((uint16_t)((MH10_PROTOCOL_VERSION_MAJOR << 8) | \
@@ -101,6 +101,11 @@ typedef enum {
  */
 typedef enum {
     MH10_MB_REG_IAP_ENTER         = 0x11, /*!< 写入 0xB007 进入 IAP bootloader（app 模式有效） */
+    /* 前板专用寄存器，占用系统区 0x11 与 0x18 之间的空闲地址（后板不实现） */
+    MH10_MB_FO_ALARM_SUPPRESS_RW  = 0x12, /*!< 前板异常检测屏蔽（V1.5.0）：bit0=1 屏蔽转速/驱动器
+                                               异常检测（检测到异常仅打印日志，不置异常码、不进
+                                               EXCEPTION 停机）；上电默认 0=检测开启，写入立即生效，
+                                               易失不擦 flash（持久化由 box 侧负责） */
     MH10_MB_REG_CONST             = 0x18, /*!< 常量标识，固定为 0xA0A0 */
     MH10_MB_REG_REBOOT            = 0x19, /*!< 写入 0x5A5A 触发复位 */
     MH10_MB_REG_HW_VERSION        = 0x1A, /*!< 硬件版本 */
@@ -410,6 +415,7 @@ MH10_CTASSERT(MH10_MB_FO_TOOLHEAD_CYCLE_COUNTS_RW < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_FO_TUNE_ERROR_RO < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_BK_TARGET_STATE_WO < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_REG_IAP_ENTER < MH10_MB_REG_COUNT);
+MH10_CTASSERT(MH10_MB_FO_ALARM_SUPPRESS_RW < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_REG_PROTOCOL_VERSION < MH10_MB_REG_COUNT);
 MH10_CTASSERT(sizeof(mh10_version_block_t) == MH10_VERSION_BLOCK_SIZE);
 

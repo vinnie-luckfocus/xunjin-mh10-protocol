@@ -7,9 +7,9 @@ Xunjin MH10 Modbus 协议 Python 绑定。
 仿真器和协议文档示例。所有常量与 C 头文件保持严格一致。
 """
 
-# 协议版本（V1.4.0：前板 0x0C 目标方向正式定义为三种切割模式）
+# 协议版本（V1.5.0：新增前板转速/驱动器异常检测屏蔽寄存器 0x12）
 MH10_PROTOCOL_VERSION_MAJOR = 1
-MH10_PROTOCOL_VERSION_MINOR = 4
+MH10_PROTOCOL_VERSION_MINOR = 5
 MH10_PROTOCOL_VERSION_PATCH = 0
 MH10_PROTOCOL_VERSION = (MH10_PROTOCOL_VERSION_MAJOR << 8) | \
                         (MH10_PROTOCOL_VERSION_MINOR << 4)  | \
@@ -45,6 +45,9 @@ MH10_MB_FC_WRITE_MULTIPLE_REGISTERS = 0x10
 
 # 系统公共寄存器
 MH10_MB_REG_IAP_ENTER = 0x11
+# 前板专用寄存器，占用系统区 0x11 与 0x18 之间的空闲地址（后板不实现）
+# bit0=1 屏蔽转速/驱动器异常检测，上电默认 0=检测开启，易失不擦 flash
+MH10_MB_FO_ALARM_SUPPRESS_RW = 0x12
 MH10_MB_REG_CONST = 0x18
 MH10_MB_REG_REBOOT = 0x19
 MH10_MB_REG_HW_VERSION = 0x1A

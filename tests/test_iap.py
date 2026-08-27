@@ -90,6 +90,7 @@ class TestHeaderConsistency:
         "MH10_PROTOCOL_VERSION_PATCH",
         "MH10_MODBUS_IAP_MAGIC",
         "MH10_MB_REG_IAP_ENTER",
+        "MH10_MB_FO_ALARM_SUPPRESS_RW",
         "MH10_FLASH_BASE",
         "MH10_BL_BASE",
         "MH10_BL_SIZE",
@@ -145,7 +146,7 @@ class TestHeaderConsistency:
             (header["MH10_PROTOCOL_VERSION_MAJOR"] << 8)
             | (header["MH10_PROTOCOL_VERSION_MINOR"] << 4)
             | header["MH10_PROTOCOL_VERSION_PATCH"]
-        ) == 0x0140
+        ) == 0x0150
         assert m.MH10_APP_MAX_SIZE == 55296
         assert m.MH10_APP_MAX_SIZE == m.MH10_DEVICE_ID_PAGE_ADDR - m.MH10_APP_BASE
         assert m.MH10_VERSION_BLOCK_IMAGE_OFFSET == \
