@@ -78,6 +78,11 @@ from mh10_protocol import (
     MH10_MB_FO_CURVE_THR_NUM,
     MH10_MB_FO_CURVE_REG_NUM,
     MH10_CURVE_SUPPORT_MAGIC,
+    MH10_MB_FO_DEBUG_SPEED_RW,
+    MH10_MB_FO_DEBUG_DIR_RW,
+    MH10_MB_FO_DEBUG_CMD_WO,
+    MH10_DEBUG_CMD_START,
+    MH10_DEBUG_CMD_STOP,
     MH10_TUNE_CMD_AUTO_CALIB,
     MH10_TUNE_CMD_MANUAL_START,
     MH10_TUNE_CMD_MANUAL_STOP,
@@ -218,6 +223,17 @@ CURVE_REGIONS = (
     (MH10_MB_FO_CURVE_REV_556_BASE, "556反转"),
 )
 CURVE_THR_NAMES = ("LOW", "MED", "HIGH")
+
+# V1.7.0：前板调试直驱（0x6D~0x6F）
+DEBUG_DIR_NAMES = {
+    0: "正转",
+    1: "反转",
+}
+
+DEBUG_CMD_NAMES = {
+    MH10_DEBUG_CMD_START: "启动直驱",
+    MH10_DEBUG_CMD_STOP: "停止直驱",
+}
 
 
 @dataclass
@@ -569,6 +585,8 @@ class BusAnalyzer:
             self._event("info", f"负压目标状态 → {BACKBOARD_STATES.get(value, value)}")
         elif sid == MH10_SLAVE_ID_FRONT_BOARD and addr == MH10_MB_FO_TUNE_CMD:
             self._event("info", f"调参命令：{TUNE_CMD_NAMES.get(value, f'未知命令 0x{value:04X}')}")
+        elif sid == MH10_SLAVE_ID_FRONT_BOARD and addr == MH10_MB_FO_DEBUG_CMD_WO and value != 0:
+            self._event("info", f"调试直驱命令：{DEBUG_CMD_NAMES.get(value, f'未知命令 0x{value:04X}')}")
         elif sid == MH10_SLAVE_ID_FRONT_BOARD and addr == MH10_MB_FO_TUNE_STATUS:
             name = TUNE_STATUS_NAMES.get(value, f"未知状态 {value}")
             old_name = TUNE_STATUS_NAMES.get(old, old) if old is not None else "—"
@@ -699,6 +717,12 @@ class BusAnalyzer:
                     if off < MH10_MB_FO_CURVE_THR_NUM:
                         return f"({label} 阈值{CURVE_THR_NAMES[off]} {value}RPM)"
                     return f"({label} CUR[{off - MH10_MB_FO_CURVE_THR_NUM}] {value / 10.0:.1f}A)"
+            if addr == MH10_MB_FO_DEBUG_SPEED_RW:
+                return f"(直驱 {value}RPM)"
+            if addr == MH10_MB_FO_DEBUG_DIR_RW:
+                return f"(直驱 {DEBUG_DIR_NAMES.get(value, '?')})"
+            if addr == MH10_MB_FO_DEBUG_CMD_WO:
+                return f"({DEBUG_CMD_NAMES.get(value, '?')})"
         if slave == MH10_SLAVE_ID_BACK_BOARD:
             if addr in (MH10_MB_BK_NP_IS_RO, MH10_MB_BK_NP_OS_RO):
                 return f"({value / MH10_NP_SCALE_FACTOR:.2f}kPa)"

@@ -112,6 +112,11 @@ class TestHeaderConsistency:
         "MH10_CURVE_DEF_CUR_556_1",
         "MH10_CURVE_DEF_CUR_556_2",
         "MH10_CURVE_DEF_CUR_556_3",
+        "MH10_MB_FO_DEBUG_SPEED_RW",
+        "MH10_MB_FO_DEBUG_DIR_RW",
+        "MH10_MB_FO_DEBUG_CMD_WO",
+        "MH10_DEBUG_CMD_START",
+        "MH10_DEBUG_CMD_STOP",
         "MH10_FLASH_BASE",
         "MH10_BL_BASE",
         "MH10_BL_SIZE",
@@ -167,9 +172,10 @@ class TestHeaderConsistency:
             (header["MH10_PROTOCOL_VERSION_MAJOR"] << 8)
             | (header["MH10_PROTOCOL_VERSION_MINOR"] << 4)
             | header["MH10_PROTOCOL_VERSION_PATCH"]
-        ) == 0x0160
+        ) == 0x0170
         assert m.MH10_MB_REG_COUNT == 0x70
         assert m.MH10_MB_FO_CURVE_SUPPORT_RO < m.MH10_MB_REG_COUNT
+        assert m.MH10_MB_FO_DEBUG_CMD_WO < m.MH10_MB_REG_COUNT
         assert m.MH10_APP_MAX_SIZE == 55296
         assert m.MH10_APP_MAX_SIZE == m.MH10_DEVICE_ID_PAGE_ADDR - m.MH10_APP_BASE
         assert m.MH10_VERSION_BLOCK_IMAGE_OFFSET == \

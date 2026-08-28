@@ -80,6 +80,11 @@ from mh10_protocol import (
     MH10_CURVE_DEFAULT_THR,
     MH10_CURVE_DEFAULT_CUR_522,
     MH10_CURVE_DEFAULT_CUR_556,
+    MH10_MB_FO_DEBUG_SPEED_RW,
+    MH10_MB_FO_DEBUG_DIR_RW,
+    MH10_MB_FO_DEBUG_CMD_WO,
+    MH10_DEBUG_CMD_START,
+    MH10_DEBUG_CMD_STOP,
     MH10_SLAVE_ID_BACK_BOARD,
     MH10_SLAVE_ID_FRONT_BOARD,
     MH10_TOOLHEAD_STATE_ONLINE_READY,
@@ -221,6 +226,11 @@ class VirtualBoard:
             for k, c in enumerate(cur):
                 regs[base + MH10_MB_FO_CURVE_THR_NUM + k] = c
         regs[MH10_MB_FO_CURVE_SUPPORT_RO] = MH10_CURVE_SUPPORT_MAGIC
+
+        # V1.7.0 调试直驱区默认值：上电默认停止，转速 900rpm / 方向正转
+        regs[MH10_MB_FO_DEBUG_SPEED_RW] = 900
+        regs[MH10_MB_FO_DEBUG_DIR_RW] = 0
+        regs[MH10_MB_FO_DEBUG_CMD_WO] = 0
         return regs
 
     def _init_back_board(self):
@@ -289,6 +299,18 @@ class VirtualBoard:
             return self._exception(slave_id, pdu[0], 0x02)
         with self._lock:
             regs[address] = value
+            if (slave_id == MH10_SLAVE_ID_FRONT_BOARD
+                    and address == MH10_MB_FO_DEBUG_CMD_WO and value != 0):
+                # V1.7.0 直驱命令：执行后清零
+                if value == MH10_DEBUG_CMD_START:
+                    logging.info("[%02X] 调试直驱启动：%d rpm 方向 %d", slave_id,
+                                 regs[MH10_MB_FO_DEBUG_SPEED_RW],
+                                 regs[MH10_MB_FO_DEBUG_DIR_RW])
+                elif value == MH10_DEBUG_CMD_STOP:
+                    logging.info("[%02X] 调试直驱停止", slave_id)
+                else:
+                    logging.warning("[%02X] 未知直驱命令 0x%04X，忽略", slave_id, value)
+                regs[address] = 0
             if address == MH10_MB_REG_REBOOT and value == MH10_MODBUS_REBOOT_MAGIC:
                 logging.warning("[%02X] 收到复位魔数，100ms 后复位", slave_id)
                 threading.Timer(0.1, self._reset_board, args=(slave_id,)).start()

@@ -368,6 +368,25 @@ class TestDecode:
         assert "MB_FO_CURVE_FWD_522[3]=0x0010(522正转 CUR[0] 1.6A)" in resp_summary
         assert "MB_FO_CURVE_SUPPORT_RO=0xC0DE(支持电流曲线调节)" in resp_summary
 
+    def test_debug_drive_decode(self):
+        """V1.7.0 调试直驱区（0x6D~0x6F）：寄存器命名、语义注释与命令事件。"""
+        assert MH10RegisterMap.name(2, 0x6D) == "MB_FO_DEBUG_SPEED_RW"
+        assert MH10RegisterMap.name(2, 0x6E) == "MB_FO_DEBUG_DIR_RW"
+        assert MH10RegisterMap.name(2, 0x6F) == "MB_FO_DEBUG_CMD_WO"
+        an = BusAnalyzer()
+        feed_raw(an, make_read_req(2, 0x6D, 3), ts=1.000)
+        feed_raw(an, make_read_resp(2, [900, 1, 0]), ts=1.010)
+        resp_summary = an.snapshot()["frame_log"][1].summary
+        assert "MB_FO_DEBUG_SPEED_RW=0x0384(直驱 900RPM)" in resp_summary
+        assert "MB_FO_DEBUG_DIR_RW=0x0001(直驱 反转)" in resp_summary
+        # 启动命令：帧日志语义注释 + 事件
+        feed_raw(an, make_write_single(2, 0x6F, 1), ts=2.0)
+        feed_raw(an, make_write_single(2, 0x6F, 1), ts=2.005)  # 0x06 响应回显
+        snap = an.snapshot()
+        req_summaries = [r.summary for r in snap["frame_log"] if r.direction == "REQ"]
+        assert any("MB_FO_DEBUG_CMD_WO = 0x0001(启动直驱)" in s for s in req_summaries)
+        assert any("调试直驱命令：启动直驱" in e.message for e in snap["events"])
+
 
 # ----------------------------------------------------------------------
 # headless 端到端：虚拟板 + 真实串口帧 + tee 进分析器

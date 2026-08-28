@@ -2,8 +2,8 @@
 Copyright (C),  2024-2034 , XJMDT. Co., Ltd.
 File name: mh10_protocol.h
 Author: Vinnie.Zhou
-Version: V1.6.0
-Date: 2026/08/27
+Version: V1.7.0
+Date: 2026/08/28
 Contact: zhoushizheng331@gmail.com
 Description: Xunjin MH10 主控板与前后工控板 Modbus RTU 通信协议统一头文件。
              本文件为 C/C++ 双语言兼容，是主控板（a_box_app）与工控板
@@ -22,13 +22,12 @@ extern "C" {
 /**
  * @brief 协议版本（语义化版本，BCD 编码）。
  *
- * 当前为 V1.6.0，对应 0x0160（新增前板正/反转电流曲线调节区
- * 0x50~0x6C：DM2C522/DM2C556 × 正转/反转 共四套分段阶梯曲线，
- * 寄存器数组上限由 0x50 扩展至 0x70）。
+ * 当前为 V1.7.0，对应 0x0170（新增前板调试直驱寄存器 0x6D~0x6F：
+ * 独立于往复/切割状态机的连续旋转电机直驱）。
  * 该值同步写入系统寄存器 MH10_MB_REG_PROTOCOL_VERSION。
  */
 #define MH10_PROTOCOL_VERSION_MAJOR 1U
-#define MH10_PROTOCOL_VERSION_MINOR 6U
+#define MH10_PROTOCOL_VERSION_MINOR 7U
 #define MH10_PROTOCOL_VERSION_PATCH 0U
 #define MH10_PROTOCOL_VERSION       \
     ((uint16_t)((MH10_PROTOCOL_VERSION_MAJOR << 8) | \
@@ -218,11 +217,12 @@ typedef enum {
     MH10_MB_FO_CURVE_FWD_556_BASE = 0x5E, /*!< RW DM2C556 正转曲线基址（0x5E~0x64） */
     MH10_MB_FO_CURVE_REV_556_BASE = 0x65, /*!< RW DM2C556 反转曲线基址（0x65~0x6B） */
 
-    MH10_MB_FO_CURVE_SUPPORT_RO   = 0x6C, /*!< RO 曲线调节支持标识：支持本功能的固件
+    MH10_MB_FO_CURVE_SUPPORT_RO   = 0x6C, /*!< RO 扩展区支持标识：支持 0x50~0x6F
+                                               扩展区（电流曲线 + 调试直驱）的固件
                                                固定返回 MH10_CURVE_SUPPORT_MAGIC；
                                                旧固件（REG_COUNT=0x50）读该地址返回
                                                非法地址异常，主机据此优雅降级 */
-    /* 0x6D~0x6F 保留 */
+    /* 0x6D~0x6F 为调试直驱区（V1.7.0），见 mh10_mb_front_debug_reg_t */
 } mh10_mb_front_curve_reg_t;
 
 /** @brief 单套曲线的阈值个数 / 电流档数 / 寄存器总数。 */
@@ -245,6 +245,35 @@ typedef enum {
 #define MH10_CURVE_DEF_CUR_556_1   20U
 #define MH10_CURVE_DEF_CUR_556_2   23U
 #define MH10_CURVE_DEF_CUR_556_3   25U
+
+/**
+ * @brief 前板调试直驱寄存器（V1.7.0 新增，0x6D~0x6F）。
+ *
+ * 用途：box 系统维护"调试模式"页面直接驱动电机连续旋转，完全独立于
+ * 切割/往复状态机与调参手动档位运行（不占用 0x20~0x4F 调参区任何寄存器）。
+ * 启动后电机按 0x6D 设定转速、0x6E 方向持续连续旋转，直到收到停止命令；
+ * 电流按 V1.6.0 曲线区对应方向/驱动器型号的曲线随速度下发。
+ *
+ * 互斥与安全：
+ *  - 直驱运行期间，切割引擎/调参手动运行/自动标定不得启动，反之亦然；
+ *  - 出现工具头异常（堵转/转速异常等）或进入 EXCEPTION 状态时自动停止；
+ *  - 上电默认停止；寄存器值易失，不擦写 flash。
+ *
+ * 支持判定：与曲线区共用 0x6C 支持标识（同一固件版本一并实现），
+ * 旧固件写 0x6D~0x6F 返回非法地址异常，主机据此优雅降级。
+ */
+typedef enum {
+    MH10_MB_FO_DEBUG_SPEED_RW = 0x6D, /*!< RW 直驱设定转速（工具头输出轴 rpm，
+                                           与 0x0B 同刻度，固件钳制到安全范围） */
+    MH10_MB_FO_DEBUG_DIR_RW   = 0x6E, /*!< RW 直驱方向：0=正转 1=反转，默认 0 */
+    MH10_MB_FO_DEBUG_CMD_WO   = 0x6F, /*!< WO 直驱命令（mh10_debug_cmd_t），执行后清零 */
+} mh10_mb_front_debug_reg_t;
+
+/** @brief 调试直驱命令（写 MH10_MB_FO_DEBUG_CMD_WO）。 */
+typedef enum {
+    MH10_DEBUG_CMD_START = 1, /*!< 启动直驱（按 0x6D/0x6E 连续旋转） */
+    MH10_DEBUG_CMD_STOP  = 2, /*!< 停止直驱（减速停机） */
+} mh10_debug_cmd_t;
 
 /** @brief 调参命令（写 MH10_MB_FO_TUNE_CMD）。 */
 typedef enum {
@@ -478,6 +507,7 @@ MH10_CTASSERT(MH10_MB_BK_TARGET_STATE_WO < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_REG_IAP_ENTER < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_FO_ALARM_SUPPRESS_RW < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_FO_CURVE_SUPPORT_RO < MH10_MB_REG_COUNT);
+MH10_CTASSERT(MH10_MB_FO_DEBUG_CMD_WO < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_REG_PROTOCOL_VERSION < MH10_MB_REG_COUNT);
 MH10_CTASSERT(sizeof(mh10_version_block_t) == MH10_VERSION_BLOCK_SIZE);
 

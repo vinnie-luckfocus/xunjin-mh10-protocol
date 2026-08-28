@@ -7,9 +7,9 @@ Xunjin MH10 Modbus 协议 Python 绑定。
 仿真器和协议文档示例。所有常量与 C 头文件保持严格一致。
 """
 
-# 协议版本（V1.6.0：新增前板正/反转电流曲线调节区 0x50~0x6C，数组扩至 0x70）
+# 协议版本（V1.7.0：新增前板调试直驱寄存器 0x6D~0x6F，扩展区支持标识共用 0x6C）
 MH10_PROTOCOL_VERSION_MAJOR = 1
-MH10_PROTOCOL_VERSION_MINOR = 6
+MH10_PROTOCOL_VERSION_MINOR = 7
 MH10_PROTOCOL_VERSION_PATCH = 0
 MH10_PROTOCOL_VERSION = (MH10_PROTOCOL_VERSION_MAJOR << 8) | \
                         (MH10_PROTOCOL_VERSION_MINOR << 4)  | \
@@ -145,9 +145,11 @@ MH10_MB_FO_CURVE_FWD_522_BASE = 0x50  # RW DM2C522 正转曲线基址（0x50~0x5
 MH10_MB_FO_CURVE_REV_522_BASE = 0x57  # RW DM2C522 反转曲线基址（0x57~0x5D）
 MH10_MB_FO_CURVE_FWD_556_BASE = 0x5E  # RW DM2C556 正转曲线基址（0x5E~0x64）
 MH10_MB_FO_CURVE_REV_556_BASE = 0x65  # RW DM2C556 反转曲线基址（0x65~0x6B）
-MH10_MB_FO_CURVE_SUPPORT_RO = 0x6C    # RO 支持本功能的固件固定返回 MH10_CURVE_SUPPORT_MAGIC；
-                                      # 旧固件读该地址返回非法地址异常，主机据此优雅降级
-# 0x6D~0x6F 保留
+MH10_MB_FO_CURVE_SUPPORT_RO = 0x6C    # RO 扩展区支持标识：支持 0x50~0x6F 扩展区
+                                      # （电流曲线 + 调试直驱）的固件固定返回
+                                      # MH10_CURVE_SUPPORT_MAGIC；旧固件读该地址返回
+                                      # 非法地址异常，主机据此优雅降级
+# 0x6D~0x6F 为调试直驱区（V1.7.0），见下方"前板调试直驱寄存器"
 
 # 单套曲线的阈值个数 / 电流档数 / 寄存器总数
 MH10_MB_FO_CURVE_THR_NUM = 3
@@ -176,6 +178,19 @@ MH10_CURVE_DEFAULT_CUR_522 = [MH10_CURVE_DEF_CUR_522_0, MH10_CURVE_DEF_CUR_522_1
                               MH10_CURVE_DEF_CUR_522_2, MH10_CURVE_DEF_CUR_522_3]
 MH10_CURVE_DEFAULT_CUR_556 = [MH10_CURVE_DEF_CUR_556_0, MH10_CURVE_DEF_CUR_556_1,
                               MH10_CURVE_DEF_CUR_556_2, MH10_CURVE_DEF_CUR_556_3]
+
+# 前板调试直驱寄存器（V1.7.0，0x6D~0x6F）
+# box 系统维护"调试模式"页面直接驱动电机连续旋转，独立于切割/往复状态机与
+# 调参手动档位运行（不占用 0x20~0x4F 调参区）；电流按曲线区对应方向/型号下发。
+# 互斥与安全：与切割引擎/调参手动运行/自动标定互斥；异常或 EXCEPTION 自动停止；
+# 上电默认停止；寄存器值易失不擦 flash；支持判定与曲线区共用 0x6C 标识
+MH10_MB_FO_DEBUG_SPEED_RW = 0x6D  # RW 直驱设定转速（工具头输出轴 rpm，与 0x0B 同刻度）
+MH10_MB_FO_DEBUG_DIR_RW = 0x6E    # RW 直驱方向：0=正转 1=反转，默认 0
+MH10_MB_FO_DEBUG_CMD_WO = 0x6F    # WO 直驱命令（mh10_debug_cmd_t），执行后清零
+
+# 调试直驱命令（写 MH10_MB_FO_DEBUG_CMD_WO）
+MH10_DEBUG_CMD_START = 1  # 启动直驱（按 0x6D/0x6E 连续旋转）
+MH10_DEBUG_CMD_STOP = 2   # 停止直驱（减速停机）
 
 # 后板寄存器
 MH10_MB_BK_VERSION_RO = 0x00
@@ -360,6 +375,9 @@ class MH10RegisterMap:
         MH10_MB_FO_TUNE_REV_STAT_RO: "MB_FO_TUNE_REV_STAT_RO",
         MH10_MB_FO_TUNE_ERROR_RO: "MB_FO_TUNE_ERROR_RO",
         MH10_MB_FO_CURVE_SUPPORT_RO: "MB_FO_CURVE_SUPPORT_RO",
+        MH10_MB_FO_DEBUG_SPEED_RW: "MB_FO_DEBUG_SPEED_RW",
+        MH10_MB_FO_DEBUG_DIR_RW: "MB_FO_DEBUG_DIR_RW",
+        MH10_MB_FO_DEBUG_CMD_WO: "MB_FO_DEBUG_CMD_WO",
     }
 
     _BACK = {
