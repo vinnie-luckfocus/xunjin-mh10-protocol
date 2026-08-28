@@ -22,12 +22,12 @@ extern "C" {
 /**
  * @brief 协议版本（语义化版本，BCD 编码）。
  *
- * 当前为 V1.7.0，对应 0x0170（新增前板调试直驱寄存器 0x6D~0x6F：
- * 独立于往复/切割状态机的连续旋转电机直驱）。
+ * 当前为 V1.8.0，对应 0x0180（新增前板自动退刀寄存器 0x13：
+ * 堵转判定成立后自动反向旋转到切割窗口打开位置）。
  * 该值同步写入系统寄存器 MH10_MB_REG_PROTOCOL_VERSION。
  */
 #define MH10_PROTOCOL_VERSION_MAJOR 1U
-#define MH10_PROTOCOL_VERSION_MINOR 7U
+#define MH10_PROTOCOL_VERSION_MINOR 8U
 #define MH10_PROTOCOL_VERSION_PATCH 0U
 #define MH10_PROTOCOL_VERSION       \
     ((uint16_t)((MH10_PROTOCOL_VERSION_MAJOR << 8) | \
@@ -108,6 +108,13 @@ typedef enum {
                                                异常检测（检测到异常仅打印日志，不置异常码、不进
                                                EXCEPTION 停机）；上电默认 0=检测开启，写入立即生效，
                                                易失不擦 flash（持久化由 box 侧负责） */
+    MH10_MB_FO_AUTO_RETRACT_RW    = 0x13, /*!< 前板自动退刀使能（V1.8.0）：bit0=1 时运行中发生
+                                               EXP_MOTOR_STOP 堵转异常后，前板先停机再以安全低速
+                                               反向旋转，直至切割窗口到达打开位置（HEAD_SWITCH
+                                               闭合沿后再走半个往复周期）后停止，随后仍上报堵转
+                                               异常；上电默认 0=关闭，写入立即生效，易失不擦 flash
+                                               （持久化由 box 侧负责）。0x12 bit0=1 屏蔽检测时本
+                                               功能不触发（无检测就无异常） */
     MH10_MB_REG_CONST             = 0x18, /*!< 常量标识，固定为 0xA0A0 */
     MH10_MB_REG_REBOOT            = 0x19, /*!< 写入 0x5A5A 触发复位 */
     MH10_MB_REG_HW_VERSION        = 0x1A, /*!< 硬件版本 */
@@ -506,6 +513,7 @@ MH10_CTASSERT(MH10_MB_FO_TUNE_ERROR_RO < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_BK_TARGET_STATE_WO < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_REG_IAP_ENTER < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_FO_ALARM_SUPPRESS_RW < MH10_MB_REG_COUNT);
+MH10_CTASSERT(MH10_MB_FO_AUTO_RETRACT_RW < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_FO_CURVE_SUPPORT_RO < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_FO_DEBUG_CMD_WO < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_REG_PROTOCOL_VERSION < MH10_MB_REG_COUNT);
