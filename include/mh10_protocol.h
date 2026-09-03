@@ -22,14 +22,16 @@ extern "C" {
 /**
  * @brief 协议版本（语义化版本，BCD 编码）。
  *
- * 当前为 V1.9.0，对应 0x0190（新增前板两段式加速寄存器 0x14~0x16：
- * 全力转速 / 全力上升时间 / 加速上升时间，用于连续旋转模式的两段式
- * 加速规划）。
+ * 当前为 V1.9.1，对应 0x0191（新增前板两段式加速稳定时间寄存器 0x17：
+ * 全力转速稳定时间 ms 可调，默认 3000，取代 V1.9.0 的固件固定 3 秒）。
+ * 注：本协议版本号为 BCD 编码（(MAJOR<<8)|(MINOR<<4)|PATCH，每位须为
+ * 0~9 的合法 BCD 数字），MINOR 无法表达 10（10<<4=0xA0 非 BCD），
+ * 故本次新增寄存器以 PATCH 升版为 V1.9.1 而非 V1.10.0。
  * 该值同步写入系统寄存器 MH10_MB_REG_PROTOCOL_VERSION。
  */
 #define MH10_PROTOCOL_VERSION_MAJOR 1U
 #define MH10_PROTOCOL_VERSION_MINOR 9U
-#define MH10_PROTOCOL_VERSION_PATCH 0U
+#define MH10_PROTOCOL_VERSION_PATCH 1U
 #define MH10_PROTOCOL_VERSION       \
     ((uint16_t)((MH10_PROTOCOL_VERSION_MAJOR << 8) | \
                 (MH10_PROTOCOL_VERSION_MINOR << 4)  | \
@@ -118,9 +120,10 @@ typedef enum {
                                                功能不触发（无检测就无异常） */
     /* 前板两段式加速参数（V1.9.0，仅连续旋转模式使用，往复模式不用）：
      * 目标转速 ≤ 全力转速（0x14）时，用全力上升时间（0x15）一步爬坡到位；
-     * 目标转速 > 全力转速时，先用全力上升时间爬到全力转速，稳定 3 秒
-     * （固件固定常量）后再以加速上升时间（0x16）爬到目标转速。
-     * 三个参数上电为默认值，写 0 或越界时固件回退默认值；写入立即生效，
+     * 目标转速 > 全力转速时，先用全力上升时间爬到全力转速，稳定
+     * 0x17 指定的时间（V1.9.1 起可调，V1.9.0 固件为固定 3 秒）后再以
+     * 加速上升时间（0x16）爬到目标转速。
+     * 四个参数上电为默认值，写 0 或越界时固件回退默认值；写入立即生效，
      * 易失不擦 flash（持久化由 box 侧 sys.ini 负责）；后板不实现。 */
     MH10_MB_FO_FULL_POWER_SPEED_RW  = 0x14, /*!< 全力转速（V1.9.0）：两段式加速
                                                  第一段的目标转速，单位 rpm，量纲
@@ -131,9 +134,14 @@ typedef enum {
                                                  （对应 DM2C PR0 加速时间）；
                                                  上电默认 100 */
     MH10_MB_FO_ACCEL_RISE_RW        = 0x16, /*!< 加速上升时间（V1.9.0）：全力转速
-                                                 以上段（稳定 3 秒后）爬到目标转速
-                                                 所用加速时间，单位 ms/1000rpm；
-                                                 上电默认 1000 */
+                                                 以上段（稳定 0x17 时间后）爬到
+                                                 目标转速所用加速时间，单位
+                                                 ms/1000rpm；上电默认 1000 */
+    MH10_MB_FO_RAMP_STABLE_MS_RW    = 0x17, /*!< 全力转速稳定时间（V1.9.1）：爬到
+                                                 全力转速后保持稳定、再进入加速
+                                                 上升段的时间，单位 ms，有效范围
+                                                 100~3000；上电默认 3000（即
+                                                 V1.9.0 固件的固定 3 秒） */
     MH10_MB_REG_CONST             = 0x18, /*!< 常量标识，固定为 0xA0A0 */
     MH10_MB_REG_REBOOT            = 0x19, /*!< 写入 0x5A5A 触发复位 */
     MH10_MB_REG_HW_VERSION        = 0x1A, /*!< 硬件版本 */
@@ -536,6 +544,7 @@ MH10_CTASSERT(MH10_MB_FO_AUTO_RETRACT_RW < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_FO_FULL_POWER_SPEED_RW < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_FO_FULL_POWER_RISE_RW < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_FO_ACCEL_RISE_RW < MH10_MB_REG_COUNT);
+MH10_CTASSERT(MH10_MB_FO_RAMP_STABLE_MS_RW < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_FO_CURVE_SUPPORT_RO < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_FO_DEBUG_CMD_WO < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_REG_PROTOCOL_VERSION < MH10_MB_REG_COUNT);
