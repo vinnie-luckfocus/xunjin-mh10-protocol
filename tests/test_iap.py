@@ -91,6 +91,10 @@ class TestHeaderConsistency:
         "MH10_MODBUS_IAP_MAGIC",
         "MH10_MB_REG_IAP_ENTER",
         "MH10_MB_FO_ALARM_SUPPRESS_RW",
+        "MH10_MB_FO_AUTO_RETRACT_RW",
+        "MH10_MB_FO_FULL_POWER_SPEED_RW",
+        "MH10_MB_FO_FULL_POWER_RISE_RW",
+        "MH10_MB_FO_ACCEL_RISE_RW",
         "MH10_MB_REG_COUNT",
         "MH10_MB_FO_CURVE_FWD_522_BASE",
         "MH10_MB_FO_CURVE_REV_522_BASE",
@@ -172,7 +176,7 @@ class TestHeaderConsistency:
             (header["MH10_PROTOCOL_VERSION_MAJOR"] << 8)
             | (header["MH10_PROTOCOL_VERSION_MINOR"] << 4)
             | header["MH10_PROTOCOL_VERSION_PATCH"]
-        ) == 0x0180
+        ) == 0x0190
         assert m.MH10_MB_REG_COUNT == 0x70
         assert m.MH10_MB_FO_CURVE_SUPPORT_RO < m.MH10_MB_REG_COUNT
         assert m.MH10_MB_FO_DEBUG_CMD_WO < m.MH10_MB_REG_COUNT

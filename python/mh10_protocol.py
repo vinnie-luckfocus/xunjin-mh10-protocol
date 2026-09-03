@@ -7,9 +7,9 @@ Xunjin MH10 Modbus 协议 Python 绑定。
 仿真器和协议文档示例。所有常量与 C 头文件保持严格一致。
 """
 
-# 协议版本（V1.8.0：新增前板自动退刀寄存器 0x13）
+# 协议版本（V1.9.0：新增前板两段式加速寄存器 0x14~0x16）
 MH10_PROTOCOL_VERSION_MAJOR = 1
-MH10_PROTOCOL_VERSION_MINOR = 8
+MH10_PROTOCOL_VERSION_MINOR = 9
 MH10_PROTOCOL_VERSION_PATCH = 0
 MH10_PROTOCOL_VERSION = (MH10_PROTOCOL_VERSION_MAJOR << 8) | \
                         (MH10_PROTOCOL_VERSION_MINOR << 4)  | \
@@ -50,6 +50,14 @@ MH10_MB_REG_IAP_ENTER = 0x11
 MH10_MB_FO_ALARM_SUPPRESS_RW = 0x12
 # bit0=1 使能自动退刀：堵转后反向低速运行到窗口打开位置再上报异常
 MH10_MB_FO_AUTO_RETRACT_RW = 0x13
+# 前板两段式加速参数（V1.9.0，仅连续旋转模式使用，往复模式不用）：
+# 目标转速 <= 全力转速（0x14）时按全力上升时间（0x15）一步爬坡到位；
+# 目标转速 > 全力转速时先爬到全力转速，稳定 3 秒（固件固定常量）后再以
+# 加速上升时间（0x16）爬到目标转速。写 0 或越界固件回退默认值，
+# 易失不擦 flash（持久化由 box 侧负责），后板不实现
+MH10_MB_FO_FULL_POWER_SPEED_RW = 0x14  # 全力转速 rpm（量纲同 0x0B），默认 4500
+MH10_MB_FO_FULL_POWER_RISE_RW = 0x15   # 全力上升时间 ms/1000rpm（DM2C PR0），默认 100
+MH10_MB_FO_ACCEL_RISE_RW = 0x16        # 加速上升时间 ms/1000rpm（全力转速以上段），默认 1000
 MH10_MB_REG_CONST = 0x18
 MH10_MB_REG_REBOOT = 0x19
 MH10_MB_REG_HW_VERSION = 0x1A
@@ -361,6 +369,9 @@ class MH10RegisterMap:
         MH10_MB_FO_TOOLHEAD_READY_TO_START_WO: "MB_FO_TOOLHEAD_READY_TO_START_WO",
         MH10_MB_FO_TOOLHEAD_PEDAL_DELAY_WO: "MB_FO_TOOLHEAD_PEDAL_DELAY_WO",
         MH10_MB_FO_TOOLHEAD_CYCLE_COUNTS_RW: "MB_FO_TOOLHEAD_CYCLE_COUNTS_RW",
+        MH10_MB_FO_FULL_POWER_SPEED_RW: "MB_FO_FULL_POWER_SPEED_RW",
+        MH10_MB_FO_FULL_POWER_RISE_RW: "MB_FO_FULL_POWER_RISE_RW",
+        MH10_MB_FO_ACCEL_RISE_RW: "MB_FO_ACCEL_RISE_RW",
         MH10_MB_FO_TUNE_DECEL: "MB_FO_TUNE_DECEL",
         MH10_MB_FO_TUNE_START_SPEED: "MB_FO_TUNE_START_SPEED",
         MH10_MB_FO_TUNE_START_STEPS: "MB_FO_TUNE_START_STEPS",
