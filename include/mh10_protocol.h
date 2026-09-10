@@ -2,8 +2,8 @@
 Copyright (C),  2024-2034 , XJMDT. Co., Ltd.
 File name: mh10_protocol.h
 Author: Vinnie.Zhou
-Version: V1.7.0
-Date: 2026/08/28
+Version: V1.10.0
+Date: 2026/09/10
 Contact: zhoushizheng331@gmail.com
 Description: Xunjin MH10 主控板与前后工控板 Modbus RTU 通信协议统一头文件。
              本文件为 C/C++ 双语言兼容，是主控板（a_box_app）与工控板
@@ -20,18 +20,20 @@ extern "C" {
 #endif
 
 /**
- * @brief 协议版本（语义化版本，BCD 编码）。
+ * @brief 协议版本（语义化版本，编码 (MAJOR<<8)|(MINOR<<4)|PATCH）。
  *
- * 当前为 V1.9.1，对应 0x0191（新增前板两段式加速稳定时间寄存器 0x17：
- * 全力转速稳定时间 ms 可调，默认 3000，取代 V1.9.0 的固件固定 3 秒）。
- * 注：本协议版本号为 BCD 编码（(MAJOR<<8)|(MINOR<<4)|PATCH，每位须为
- * 0~9 的合法 BCD 数字），MINOR 无法表达 10（10<<4=0xA0 非 BCD），
- * 故本次新增寄存器以 PATCH 升版为 V1.9.1 而非 V1.10.0。
+ * 当前为 V1.10.0，对应 0x01A0（前板速度→峰值电流曲线扩展区改为
+ * 每 500 rpm 一个固定分段的新布局：18 段 × 4 套曲线，曲线区扩至
+ * 0x50~0x97，支持标识 0x98，调试直驱区迁移至 0x99~0x9B，
+ * REG_COUNT 0x70 → 0x9C）。
+ * 注：V1.10.0 起 MINOR=10，低字节高半字节为 0xA（非 BCD 数字），
+ * 主机须按 16 位原始值或与 MH10_PROTOCOL_VERSION 宏比较来判定版本，
+ * 不得按 BCD 逐位解码。
  * 该值同步写入系统寄存器 MH10_MB_REG_PROTOCOL_VERSION。
  */
 #define MH10_PROTOCOL_VERSION_MAJOR 1U
-#define MH10_PROTOCOL_VERSION_MINOR 9U
-#define MH10_PROTOCOL_VERSION_PATCH 1U
+#define MH10_PROTOCOL_VERSION_MINOR 10U
+#define MH10_PROTOCOL_VERSION_PATCH 0U
 #define MH10_PROTOCOL_VERSION       \
     ((uint16_t)((MH10_PROTOCOL_VERSION_MAJOR << 8) | \
                 (MH10_PROTOCOL_VERSION_MINOR << 4)  | \
@@ -44,9 +46,13 @@ extern "C" {
  * 0x00~0x1F 为原有业务/系统区，0x20~0x4F 为前板电机调参区
  * （后板不使用调参区，读返回 0、写忽略）。
  * V1.6.0 起扩展至 0x70（地址 0x00 ~ 0x6F）：0x50~0x6C 为前板
- * 正/反转电流曲线调节区，0x6D~0x6F 保留。老版本主机不访问新区，向下兼容。
+ * 正/反转电流曲线调节区，0x6D~0x6F 为调试直驱区。
+ * V1.10.0 起扩展至 0x9C（地址 0x00 ~ 0x9B）：曲线区改为每 500 rpm
+ * 一个固定分段（18 段 × 4 套，0x50~0x97），支持标识 0x98，
+ * 调试直驱区迁至 0x99~0x9B。布局与 V1.9.x 不兼容，靠协议版本
+ * 0x1D 与支持标识魔数 0x98 区分。
  */
-#define MH10_MB_REG_COUNT 0x70U
+#define MH10_MB_REG_COUNT 0x9CU
 
 /**
  * @brief Modbus RTU 物理层参数。
@@ -147,7 +153,7 @@ typedef enum {
     MH10_MB_REG_HW_VERSION        = 0x1A, /*!< 硬件版本 */
     MH10_MB_REG_SW_VERSION        = 0x1B, /*!< 软件版本 */
     MH10_MB_REG_SVN_NUM           = 0x1C, /*!< SVN 版本号 */
-    MH10_MB_REG_PROTOCOL_VERSION  = 0x1D, /*!< 协议版本 V1.1.0 -> 0x0110 */
+    MH10_MB_REG_PROTOCOL_VERSION  = 0x1D, /*!< 协议版本 V1.10.0 -> 0x01A0 */
     MH10_MB_REG_GIT_HASH_HI       = 0x1E, /*!< 固件 git 提交号高 16 位（短哈希前 4 位 hex） */
     MH10_MB_REG_GIT_HASH_LO       = 0x1F, /*!< 固件 git 提交号低 16 位（短哈希第 5~8 位 hex） */
 } mh10_mb_system_reg_t;
@@ -222,90 +228,122 @@ typedef enum {
 } mh10_mb_front_tune_reg_t;
 
 /**
- * @brief 前板正/反转电流曲线调节区（V1.6.0 新增，0x50~0x6C）。
+ * @brief 前板正/反转电流曲线调节区（V1.6.0 新增，V1.10.0 改为固定分段布局）。
  *
  * 用途：box 系统维护"正反转校准"页面对连续旋转模式的 速度→峰值电流
- * 分段阶梯曲线在线调参。曲线模型与固件现有模型一致：
- *   3 个速度阈值（工具头输出轴 rpm）把速度域分成 4 段，每段一档峰值
- *   电流（0.1A）：speed<=LOW 用 CUR[0]，<=MED 用 CUR[1]，<=HIGH 用
- *   CUR[2]，否则用 CUR[3]。无插值，纯阶梯。
+ * 分段阶梯曲线在线调参。
+ *
+ * 曲线模型（V1.10.0 起）：不再有可变速度阈值，速度域按每
+ * MH10_MB_FO_CURVE_SEG_RPM（500）rpm 一个固定分段，共
+ * MH10_MB_FO_CURVE_SEG_NUM（18）段（工具头输出轴最大转速 9000 rpm =
+ * 500×18）。段 i 覆盖转速区间 [500*i, 500*(i+1))，查表
+ * seg = min((uint32_t)(speed/500), 17)，无插值，纯阶梯。
  *
  * 共四套曲线（驱动器型号 × 旋转方向）：
  *   DM2C522 正转 / DM2C522 反转 / DM2C556 正转 / DM2C556 反转。
  * 运行时按实际检测到的 DM2C 型号与当前方向选一套。
  *
- * 每套曲线占 7 个寄存器（基址 + 偏移）：
- *   +0/+1/+2  RW 速度阈值 LOW/MED/HIGH（rpm，必须单调递增，写入时固件钳制排序）
- *   +3/+4/+5/+6 RW 峰值电流 CUR[0..3]（0.1A，钳制到该驱动器型号上限：
- *                522→22，556→25）
+ * 每套曲线占 MH10_MB_FO_CURVE_CUR_NUM（18）个寄存器（基址 + 0..17），
+ * 全部为峰值电流 CUR[0..17]（单位 0.1A）。写入时固件全局钳制到
+ * 1~26（0.1A~2.6A），再按曲线所属型号钳制上限：
+ * 522 → 22（峰值 2.2A），556 → 26（允许放宽到 2.6A）。
  *
- * 默认值（正/反转相同，即 V1.5.0 及以前固件的编译期行为）：
- *   阈值 1000/4000/7000 rpm
- *   522 电流 16/18/20/22，556 电流 18/20/23/25
+ * 默认值（正/反转相同，保持 V1.9.x 旧阶梯形状的等价映射：
+ * 旧 speed<=1000 用 CUR[0..1]、<=4000 用 CUR[2..7]、<=7000 用
+ * CUR[8..13]、否则 CUR[14..17]，见 MH10_CURVE_DEF_CUR_522/556）：
+ *   522 电流 {16,16, 18×6, 20×6, 22×4}，556 电流 {18,18, 20×6, 23×6, 25×4}
  *
  * 写寄存器立即生效（易失，不擦写 flash；持久化由 box 侧 sys.ini 负责）。
+ *
+ * 兼容性：本布局与 V1.9.x（3 阈值 + 4 档电流，曲线区 0x50~0x6B，
+ * 调试直驱区 0x6D~0x6F）**不兼容**——V1.9.x 及更早固件（REG_COUNT=0x70）
+ * 读写 0x62 以外的新曲线地址返回非法地址异常（0x02）。主机先读协议
+ * 版本寄存器 0x1D（本布局固件为 0x01A0）并读 0x98 支持标识魔数
+ * MH10_CURVE_SUPPORT_MAGIC 判定新布局是否可用。
  */
 typedef enum {
-    MH10_MB_FO_CURVE_FWD_522_BASE = 0x50, /*!< RW DM2C522 正转曲线基址（0x50~0x56） */
-    MH10_MB_FO_CURVE_REV_522_BASE = 0x57, /*!< RW DM2C522 反转曲线基址（0x57~0x5D） */
-    MH10_MB_FO_CURVE_FWD_556_BASE = 0x5E, /*!< RW DM2C556 正转曲线基址（0x5E~0x64） */
-    MH10_MB_FO_CURVE_REV_556_BASE = 0x65, /*!< RW DM2C556 反转曲线基址（0x65~0x6B） */
+    MH10_MB_FO_CURVE_FWD_522_BASE = 0x50, /*!< RW DM2C522 正转曲线基址（0x50~0x61，CUR[0..17]） */
+    MH10_MB_FO_CURVE_REV_522_BASE = 0x62, /*!< RW DM2C522 反转曲线基址（0x62~0x73） */
+    MH10_MB_FO_CURVE_FWD_556_BASE = 0x74, /*!< RW DM2C556 正转曲线基址（0x74~0x85） */
+    MH10_MB_FO_CURVE_REV_556_BASE = 0x86, /*!< RW DM2C556 反转曲线基址（0x86~0x97） */
 
-    MH10_MB_FO_CURVE_SUPPORT_RO   = 0x6C, /*!< RO 扩展区支持标识：支持 0x50~0x6F
+    MH10_MB_FO_CURVE_SUPPORT_RO   = 0x98, /*!< RO 扩展区支持标识：支持 0x50~0x9B
                                                扩展区（电流曲线 + 调试直驱）的固件
                                                固定返回 MH10_CURVE_SUPPORT_MAGIC；
-                                               旧固件（REG_COUNT=0x50）读该地址返回
-                                               非法地址异常，主机据此优雅降级 */
-    /* 0x6D~0x6F 为调试直驱区（V1.7.0），见 mh10_mb_front_debug_reg_t */
+                                               旧固件读该地址返回非法地址异常，
+                                               主机据此优雅降级 */
+    /* 0x99~0x9B 为调试直驱区（V1.7.0 新增，V1.10.0 自 0x6D~0x6F 迁移至此），
+     * 见 mh10_mb_front_debug_reg_t */
 } mh10_mb_front_curve_reg_t;
 
-/** @brief 单套曲线的阈值个数 / 电流档数 / 寄存器总数。 */
-#define MH10_MB_FO_CURVE_THR_NUM   3U
-#define MH10_MB_FO_CURVE_CUR_NUM   4U
-#define MH10_MB_FO_CURVE_REG_NUM   7U
+/** @brief 单套曲线的峰值电流档数 / 寄存器总数（V1.10.0 起均为 18）。 */
+#define MH10_MB_FO_CURVE_CUR_NUM   18U
+#define MH10_MB_FO_CURVE_REG_NUM   18U
+
+/** @brief 曲线分段参数：每段转速（工具头输出轴 rpm）与分段总数。 */
+#define MH10_MB_FO_CURVE_SEG_RPM   500U   /*!< 每段 500 rpm，段 i 覆盖 [500i, 500(i+1)) */
+#define MH10_MB_FO_CURVE_SEG_NUM   18U    /*!< 分段总数 = 9000/500，覆盖最大转速 9000 rpm */
+
+/** @brief 峰值电流可调范围（单位 0.1A）：全局 1~26，再按型号钳制上限。 */
+#define MH10_MB_FO_CURVE_CUR_MIN     1U   /*!< 0.1A */
+#define MH10_MB_FO_CURVE_CUR_MAX_522 22U  /*!< DM2C-RS522 峰值 2.2A */
+#define MH10_MB_FO_CURVE_CUR_MAX_556 26U  /*!< DM2C-RS556 允许放宽到 2.6A */
 
 /** @brief 曲线调节支持标识魔数（读 MH10_MB_FO_CURVE_SUPPORT_RO）。 */
 #define MH10_CURVE_SUPPORT_MAGIC   0xC0DEU
 
-/** @brief 曲线默认值（与 V1.5.0 固件编译期行为一致，box 侧持久化缺省用）。 */
-#define MH10_CURVE_DEF_THR_LOW     1000U  /*!< rpm */
-#define MH10_CURVE_DEF_THR_MED     4000U  /*!< rpm */
-#define MH10_CURVE_DEF_THR_HIGH    7000U  /*!< rpm */
-#define MH10_CURVE_DEF_CUR_522_0   16U    /*!< 0.1A */
-#define MH10_CURVE_DEF_CUR_522_1   18U
-#define MH10_CURVE_DEF_CUR_522_2   20U
-#define MH10_CURVE_DEF_CUR_522_3   22U
-#define MH10_CURVE_DEF_CUR_556_0   18U
-#define MH10_CURVE_DEF_CUR_556_1   20U
-#define MH10_CURVE_DEF_CUR_556_2   23U
-#define MH10_CURVE_DEF_CUR_556_3   25U
+/**
+ * @brief 速度→曲线段下标查表（V1.10.0 布局）：seg = min(speed/500, 17)。
+ *
+ * 段 i 的峰值电流为 CUR[i]（0.1A），覆盖转速 [500*i, 500*(i+1)) rpm；
+ * speed ≥ 9000 时钳制到末段 CUR[17]。
+ */
+static inline uint8_t mh10_curve_seg_index(uint32_t speed)
+{
+    uint32_t seg = speed / MH10_MB_FO_CURVE_SEG_RPM;
+    return (uint8_t)((seg < MH10_MB_FO_CURVE_SEG_NUM) ? seg
+                                                      : (MH10_MB_FO_CURVE_SEG_NUM - 1U));
+}
 
 /**
- * @brief 前板调试直驱寄存器（V1.7.0 新增，0x6D~0x6F）。
+ * @brief 曲线默认峰值电流数组（0.1A，18 段；正/反转相同）。
+ *
+ * 保持 V1.9.x 旧 3 阈值 + 4 档阶梯形状的等价映射：
+ * 旧 speed<=1000（段 0~1）/ <=4000（段 2~7）/ <=7000（段 8~13）/
+ * 否则（段 14~17）。供固件初始化与 box 侧持久化缺省使用：
+ *   static const uint16_t def[MH10_MB_FO_CURVE_CUR_NUM] = MH10_CURVE_DEF_CUR_522;
+ */
+#define MH10_CURVE_DEF_CUR_522   {16U, 16U, 18U, 18U, 18U, 18U, 18U, 18U, \
+                                  20U, 20U, 20U, 20U, 20U, 20U, 22U, 22U, 22U, 22U}
+#define MH10_CURVE_DEF_CUR_556   {18U, 18U, 20U, 20U, 20U, 20U, 20U, 20U, \
+                                  23U, 23U, 23U, 23U, 23U, 23U, 25U, 25U, 25U, 25U}
+
+/**
+ * @brief 前板调试直驱寄存器（V1.7.0 新增于 0x6D~0x6F，V1.10.0 迁移至 0x99~0x9B）。
  *
  * 用途：box 系统维护"调试模式"页面直接驱动电机连续旋转，完全独立于
  * 切割/往复状态机与调参手动档位运行（不占用 0x20~0x4F 调参区任何寄存器）。
- * 启动后电机按 0x6D 设定转速、0x6E 方向持续连续旋转，直到收到停止命令；
- * 电流按 V1.6.0 曲线区对应方向/驱动器型号的曲线随速度下发。
+ * 启动后电机按 0x99 设定转速、0x9A 方向持续连续旋转，直到收到停止命令；
+ * 电流按曲线区对应方向/驱动器型号的曲线随速度下发。
  *
  * 互斥与安全：
  *  - 直驱运行期间，切割引擎/调参手动运行/自动标定不得启动，反之亦然；
  *  - 出现工具头异常（堵转/转速异常等）或进入 EXCEPTION 状态时自动停止；
  *  - 上电默认停止；寄存器值易失，不擦写 flash。
  *
- * 支持判定：与曲线区共用 0x6C 支持标识（同一固件版本一并实现），
- * 旧固件写 0x6D~0x6F 返回非法地址异常，主机据此优雅降级。
+ * 支持判定：与曲线区共用 0x98 支持标识（同一固件版本一并实现），
+ * 旧固件写 0x99~0x9B 返回非法地址异常，主机据此优雅降级。
  */
 typedef enum {
-    MH10_MB_FO_DEBUG_SPEED_RW = 0x6D, /*!< RW 直驱设定转速（工具头输出轴 rpm，
+    MH10_MB_FO_DEBUG_SPEED_RW = 0x99, /*!< RW 直驱设定转速（工具头输出轴 rpm，
                                            与 0x0B 同刻度，固件钳制到安全范围） */
-    MH10_MB_FO_DEBUG_DIR_RW   = 0x6E, /*!< RW 直驱方向：0=正转 1=反转，默认 0 */
-    MH10_MB_FO_DEBUG_CMD_WO   = 0x6F, /*!< WO 直驱命令（mh10_debug_cmd_t），执行后清零 */
+    MH10_MB_FO_DEBUG_DIR_RW   = 0x9A, /*!< RW 直驱方向：0=正转 1=反转，默认 0 */
+    MH10_MB_FO_DEBUG_CMD_WO   = 0x9B, /*!< WO 直驱命令（mh10_debug_cmd_t），执行后清零 */
 } mh10_mb_front_debug_reg_t;
 
 /** @brief 调试直驱命令（写 MH10_MB_FO_DEBUG_CMD_WO）。 */
 typedef enum {
-    MH10_DEBUG_CMD_START = 1, /*!< 启动直驱（按 0x6D/0x6E 连续旋转） */
+    MH10_DEBUG_CMD_START = 1, /*!< 启动直驱（按 0x99/0x9A 连续旋转） */
     MH10_DEBUG_CMD_STOP  = 2, /*!< 停止直驱（减速停机） */
 } mh10_debug_cmd_t;
 
@@ -545,8 +583,26 @@ MH10_CTASSERT(MH10_MB_FO_FULL_POWER_SPEED_RW < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_FO_FULL_POWER_RISE_RW < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_FO_ACCEL_RISE_RW < MH10_MB_REG_COUNT);
 MH10_CTASSERT(MH10_MB_FO_RAMP_STABLE_MS_RW < MH10_MB_REG_COUNT);
+/* V1.10.0 曲线区/调试区布局：四套曲线首尾相接，支持标识与调试直驱紧随其后 */
+MH10_CTASSERT(MH10_MB_FO_CURVE_CUR_NUM == MH10_MB_FO_CURVE_REG_NUM);
+MH10_CTASSERT(MH10_MB_FO_CURVE_SEG_RPM * MH10_MB_FO_CURVE_SEG_NUM == 9000U);
+MH10_CTASSERT(MH10_MB_FO_CURVE_FWD_522_BASE < MH10_MB_REG_COUNT);
+MH10_CTASSERT(MH10_MB_FO_CURVE_REV_522_BASE < MH10_MB_REG_COUNT);
+MH10_CTASSERT(MH10_MB_FO_CURVE_FWD_556_BASE < MH10_MB_REG_COUNT);
+MH10_CTASSERT(MH10_MB_FO_CURVE_REV_556_BASE < MH10_MB_REG_COUNT);
+MH10_CTASSERT(MH10_MB_FO_CURVE_FWD_522_BASE + MH10_MB_FO_CURVE_CUR_NUM ==
+              MH10_MB_FO_CURVE_REV_522_BASE);
+MH10_CTASSERT(MH10_MB_FO_CURVE_REV_522_BASE + MH10_MB_FO_CURVE_CUR_NUM ==
+              MH10_MB_FO_CURVE_FWD_556_BASE);
+MH10_CTASSERT(MH10_MB_FO_CURVE_FWD_556_BASE + MH10_MB_FO_CURVE_CUR_NUM ==
+              MH10_MB_FO_CURVE_REV_556_BASE);
+MH10_CTASSERT(MH10_MB_FO_CURVE_REV_556_BASE + MH10_MB_FO_CURVE_CUR_NUM ==
+              MH10_MB_FO_CURVE_SUPPORT_RO);
 MH10_CTASSERT(MH10_MB_FO_CURVE_SUPPORT_RO < MH10_MB_REG_COUNT);
+MH10_CTASSERT(MH10_MB_FO_CURVE_SUPPORT_RO + 1U == MH10_MB_FO_DEBUG_SPEED_RW);
 MH10_CTASSERT(MH10_MB_FO_DEBUG_CMD_WO < MH10_MB_REG_COUNT);
+MH10_CTASSERT(MH10_MB_FO_CURVE_CUR_MIN <= MH10_MB_FO_CURVE_CUR_MAX_522);
+MH10_CTASSERT(MH10_MB_FO_CURVE_CUR_MAX_522 <= MH10_MB_FO_CURVE_CUR_MAX_556);
 MH10_CTASSERT(MH10_MB_REG_PROTOCOL_VERSION < MH10_MB_REG_COUNT);
 MH10_CTASSERT(sizeof(mh10_version_block_t) == MH10_VERSION_BLOCK_SIZE);
 

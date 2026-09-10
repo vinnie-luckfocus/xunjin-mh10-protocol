@@ -102,21 +102,14 @@ class TestHeaderConsistency:
         "MH10_MB_FO_CURVE_FWD_556_BASE",
         "MH10_MB_FO_CURVE_REV_556_BASE",
         "MH10_MB_FO_CURVE_SUPPORT_RO",
-        "MH10_MB_FO_CURVE_THR_NUM",
         "MH10_MB_FO_CURVE_CUR_NUM",
         "MH10_MB_FO_CURVE_REG_NUM",
+        "MH10_MB_FO_CURVE_SEG_RPM",
+        "MH10_MB_FO_CURVE_SEG_NUM",
+        "MH10_MB_FO_CURVE_CUR_MIN",
+        "MH10_MB_FO_CURVE_CUR_MAX_522",
+        "MH10_MB_FO_CURVE_CUR_MAX_556",
         "MH10_CURVE_SUPPORT_MAGIC",
-        "MH10_CURVE_DEF_THR_LOW",
-        "MH10_CURVE_DEF_THR_MED",
-        "MH10_CURVE_DEF_THR_HIGH",
-        "MH10_CURVE_DEF_CUR_522_0",
-        "MH10_CURVE_DEF_CUR_522_1",
-        "MH10_CURVE_DEF_CUR_522_2",
-        "MH10_CURVE_DEF_CUR_522_3",
-        "MH10_CURVE_DEF_CUR_556_0",
-        "MH10_CURVE_DEF_CUR_556_1",
-        "MH10_CURVE_DEF_CUR_556_2",
-        "MH10_CURVE_DEF_CUR_556_3",
         "MH10_MB_FO_DEBUG_SPEED_RW",
         "MH10_MB_FO_DEBUG_DIR_RW",
         "MH10_MB_FO_DEBUG_CMD_WO",
@@ -177,8 +170,8 @@ class TestHeaderConsistency:
             (header["MH10_PROTOCOL_VERSION_MAJOR"] << 8)
             | (header["MH10_PROTOCOL_VERSION_MINOR"] << 4)
             | header["MH10_PROTOCOL_VERSION_PATCH"]
-        ) == 0x0191
-        assert m.MH10_MB_REG_COUNT == 0x70
+        ) == 0x01A0
+        assert m.MH10_MB_REG_COUNT == 0x9C
         assert m.MH10_MB_FO_CURVE_SUPPORT_RO < m.MH10_MB_REG_COUNT
         assert m.MH10_MB_FO_DEBUG_CMD_WO < m.MH10_MB_REG_COUNT
         assert m.MH10_APP_MAX_SIZE == 55296
@@ -187,6 +180,54 @@ class TestHeaderConsistency:
             m.MH10_VERSION_BLOCK_ADDR - m.MH10_APP_BASE == 0xD7C0
         assert m.MH10_VERSION_BLOCK_IMAGE_OFFSET + m.MH10_VERSION_BLOCK_SIZE \
             == m.MH10_APP_MAX_SIZE
+
+    def test_curve_region_layout(self):
+        """V1.10.0 曲线区布局：四套 18 段曲线首尾相接，调试区紧随其后。"""
+        assert m.MH10_MB_FO_CURVE_CUR_NUM == 18
+        assert m.MH10_MB_FO_CURVE_REG_NUM == 18
+        assert m.MH10_MB_FO_CURVE_SEG_RPM == 500
+        assert m.MH10_MB_FO_CURVE_SEG_NUM == 18
+        assert m.MH10_MB_FO_CURVE_SEG_RPM * m.MH10_MB_FO_CURVE_SEG_NUM == 9000
+        assert m.MH10_MB_FO_CURVE_FWD_522_BASE == 0x50
+        assert m.MH10_MB_FO_CURVE_REV_522_BASE == 0x62
+        assert m.MH10_MB_FO_CURVE_FWD_556_BASE == 0x74
+        assert m.MH10_MB_FO_CURVE_REV_556_BASE == 0x86
+        assert m.MH10_MB_FO_CURVE_SUPPORT_RO == 0x98
+        bases = (m.MH10_MB_FO_CURVE_FWD_522_BASE, m.MH10_MB_FO_CURVE_REV_522_BASE,
+                 m.MH10_MB_FO_CURVE_FWD_556_BASE, m.MH10_MB_FO_CURVE_REV_556_BASE)
+        for a, b in zip(bases, bases[1:]):
+            assert b - a == m.MH10_MB_FO_CURVE_CUR_NUM
+        assert bases[-1] + m.MH10_MB_FO_CURVE_CUR_NUM == m.MH10_MB_FO_CURVE_SUPPORT_RO
+        assert m.MH10_MB_FO_CURVE_SUPPORT_RO + 1 == m.MH10_MB_FO_DEBUG_SPEED_RW
+        assert m.MH10_MB_FO_DEBUG_SPEED_RW == 0x99
+        assert m.MH10_MB_FO_DEBUG_CMD_WO == 0x9B
+        # 曲线区/调试区全部落在寄存器数组内
+        assert m.MH10_MB_FO_DEBUG_CMD_WO < m.MH10_MB_REG_COUNT
+
+    def test_curve_defaults_match_header(self):
+        """Python 默认电流列表必须与头文件 MH10_CURVE_DEF_CUR_* 数组宏一致。"""
+        text = HEADER_PATH.read_text(encoding="utf-8")
+        for name, py_list in (("MH10_CURVE_DEF_CUR_522", m.MH10_CURVE_DEFAULT_CUR_522),
+                              ("MH10_CURVE_DEF_CUR_556", m.MH10_CURVE_DEFAULT_CUR_556)):
+            mm = re.search(r"#define\s+" + name + r"\s*\{([^}]*)\}", text, re.DOTALL)
+            assert mm, f"头文件中未找到 {name} 数组宏"
+            header_arr = [int(v, 0) for v in re.findall(r"0x[0-9A-Fa-f]+|\d+", mm.group(1))]
+            assert header_arr == py_list, f"{name}: 头文件 {header_arr} != Python {py_list}"
+            assert len(py_list) == m.MH10_MB_FO_CURVE_CUR_NUM
+            assert all(m.MH10_MB_FO_CURVE_CUR_MIN <= c <= 26 for c in py_list)
+
+    def test_curve_seg_lookup(self):
+        """V1.10.0 查表：seg = min(speed//500, 17)，段 i 覆盖 [500i, 500(i+1))。"""
+        assert m.mh10_curve_seg_index(0) == 0
+        assert m.mh10_curve_seg_index(499) == 0
+        assert m.mh10_curve_seg_index(500) == 1
+        assert m.mh10_curve_seg_index(1000) == 2
+        assert m.mh10_curve_seg_index(8999) == 17
+        assert m.mh10_curve_seg_index(9000) == 17
+        assert m.mh10_curve_seg_index(100000) == 17
+        for speed in range(0, 9000, 137):
+            seg = m.mh10_curve_seg_index(speed)
+            assert 500 * seg <= speed < 500 * (seg + 1)
 
     def test_version_block_helper(self):
         block = m.build_version_block(

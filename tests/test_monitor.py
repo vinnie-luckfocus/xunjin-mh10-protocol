@@ -349,39 +349,40 @@ class TestDecode:
         assert snap["front"]["target_dir"] == 3
 
     def test_curve_registers_decode(self):
-        """V1.6.0 曲线区：寄存器索引命名、阈值/电流语义注释与 SUPPORT_RO 标识。"""
+        """V1.10.0 曲线区：寄存器索引命名、分段电流语义注释与 SUPPORT_RO 标识。"""
         assert MH10RegisterMap.name(2, 0x50) == "MB_FO_CURVE_FWD_522[0]"
-        assert MH10RegisterMap.name(2, 0x56) == "MB_FO_CURVE_FWD_522[6]"
-        assert MH10RegisterMap.name(2, 0x57) == "MB_FO_CURVE_REV_522[0]"
-        assert MH10RegisterMap.name(2, 0x5E) == "MB_FO_CURVE_FWD_556[0]"
-        assert MH10RegisterMap.name(2, 0x6B) == "MB_FO_CURVE_REV_556[6]"
-        assert MH10RegisterMap.name(2, 0x6C) == "MB_FO_CURVE_SUPPORT_RO"
+        assert MH10RegisterMap.name(2, 0x61) == "MB_FO_CURVE_FWD_522[17]"
+        assert MH10RegisterMap.name(2, 0x62) == "MB_FO_CURVE_REV_522[0]"
+        assert MH10RegisterMap.name(2, 0x74) == "MB_FO_CURVE_FWD_556[0]"
+        assert MH10RegisterMap.name(2, 0x86) == "MB_FO_CURVE_REV_556[0]"
+        assert MH10RegisterMap.name(2, 0x97) == "MB_FO_CURVE_REV_556[17]"
+        assert MH10RegisterMap.name(2, 0x98) == "MB_FO_CURVE_SUPPORT_RO"
         an = BusAnalyzer()
-        feed_raw(an, make_read_req(2, 0x50, 0x1D), ts=1.000)  # 0x50~0x6C 整区
-        values = [0] * 0x1D
-        values[0x00] = 1000     # 522正转 阈值LOW
-        values[0x03] = 16       # 522正转 CUR[0] = 1.6A
-        values[0x1C] = 0xC0DE   # SUPPORT_RO
+        feed_raw(an, make_read_req(2, 0x50, 0x49), ts=1.000)  # 0x50~0x98 整区
+        values = [0] * 0x49
+        values[0x00] = 16       # 522正转 CUR[0] = 1.6A（段 0：0~500rpm）
+        values[0x02] = 18       # 522正转 CUR[2] = 1.8A（段 2：1000~1500rpm）
+        values[0x48] = 0xC0DE   # SUPPORT_RO（0x98）
         feed_raw(an, make_read_resp(2, values), ts=1.010)
         resp_summary = an.snapshot()["frame_log"][1].summary
-        assert "MB_FO_CURVE_FWD_522[0]=0x03E8(522正转 阈值LOW 1000RPM)" in resp_summary
-        assert "MB_FO_CURVE_FWD_522[3]=0x0010(522正转 CUR[0] 1.6A)" in resp_summary
+        assert "MB_FO_CURVE_FWD_522[0]=0x0010(522正转 CUR[0] 1.6A 0~500rpm)" in resp_summary
+        assert "MB_FO_CURVE_FWD_522[2]=0x0012(522正转 CUR[2] 1.8A 1000~1500rpm)" in resp_summary
         assert "MB_FO_CURVE_SUPPORT_RO=0xC0DE(支持电流曲线调节)" in resp_summary
 
     def test_debug_drive_decode(self):
-        """V1.7.0 调试直驱区（0x6D~0x6F）：寄存器命名、语义注释与命令事件。"""
-        assert MH10RegisterMap.name(2, 0x6D) == "MB_FO_DEBUG_SPEED_RW"
-        assert MH10RegisterMap.name(2, 0x6E) == "MB_FO_DEBUG_DIR_RW"
-        assert MH10RegisterMap.name(2, 0x6F) == "MB_FO_DEBUG_CMD_WO"
+        """V1.7.0 调试直驱区（V1.10.0 迁至 0x99~0x9B）：寄存器命名、语义注释与命令事件。"""
+        assert MH10RegisterMap.name(2, 0x99) == "MB_FO_DEBUG_SPEED_RW"
+        assert MH10RegisterMap.name(2, 0x9A) == "MB_FO_DEBUG_DIR_RW"
+        assert MH10RegisterMap.name(2, 0x9B) == "MB_FO_DEBUG_CMD_WO"
         an = BusAnalyzer()
-        feed_raw(an, make_read_req(2, 0x6D, 3), ts=1.000)
+        feed_raw(an, make_read_req(2, 0x99, 3), ts=1.000)
         feed_raw(an, make_read_resp(2, [900, 1, 0]), ts=1.010)
         resp_summary = an.snapshot()["frame_log"][1].summary
         assert "MB_FO_DEBUG_SPEED_RW=0x0384(直驱 900RPM)" in resp_summary
         assert "MB_FO_DEBUG_DIR_RW=0x0001(直驱 反转)" in resp_summary
         # 启动命令：帧日志语义注释 + 事件
-        feed_raw(an, make_write_single(2, 0x6F, 1), ts=2.0)
-        feed_raw(an, make_write_single(2, 0x6F, 1), ts=2.005)  # 0x06 响应回显
+        feed_raw(an, make_write_single(2, 0x9B, 1), ts=2.0)
+        feed_raw(an, make_write_single(2, 0x9B, 1), ts=2.005)  # 0x06 响应回显
         snap = an.snapshot()
         req_summaries = [r.summary for r in snap["frame_log"] if r.direction == "REQ"]
         assert any("MB_FO_DEBUG_CMD_WO = 0x0001(启动直驱)" in s for s in req_summaries)

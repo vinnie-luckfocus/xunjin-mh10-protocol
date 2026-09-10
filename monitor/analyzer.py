@@ -75,8 +75,8 @@ from mh10_protocol import (
     MH10_MB_FO_CURVE_FWD_556_BASE,
     MH10_MB_FO_CURVE_REV_556_BASE,
     MH10_MB_FO_CURVE_SUPPORT_RO,
-    MH10_MB_FO_CURVE_THR_NUM,
     MH10_MB_FO_CURVE_REG_NUM,
+    MH10_MB_FO_CURVE_SEG_RPM,
     MH10_CURVE_SUPPORT_MAGIC,
     MH10_MB_FO_DEBUG_SPEED_RW,
     MH10_MB_FO_DEBUG_DIR_RW,
@@ -214,17 +214,16 @@ TUNE_ERROR_NAMES = {
     4: "找不到闭合区",
 }
 
-# V1.6.0：前板正/反转电流曲线调节区（0x50~0x6B，每套 7 寄存器：
-# +0/+1/+2 速度阈值 LOW/MED/HIGH rpm，+3~+6 峰值电流 CUR[0..3] 0.1A）
+# V1.10.0：前板正/反转电流曲线调节区（0x50~0x97，每套 18 寄存器：
+# +0~+17 峰值电流 CUR[0..17] 0.1A，段 i 覆盖转速 [500i, 500(i+1)) rpm）
 CURVE_REGIONS = (
     (MH10_MB_FO_CURVE_FWD_522_BASE, "522正转"),
     (MH10_MB_FO_CURVE_REV_522_BASE, "522反转"),
     (MH10_MB_FO_CURVE_FWD_556_BASE, "556正转"),
     (MH10_MB_FO_CURVE_REV_556_BASE, "556反转"),
 )
-CURVE_THR_NAMES = ("LOW", "MED", "HIGH")
 
-# V1.7.0：前板调试直驱（0x6D~0x6F）
+# V1.7.0：前板调试直驱（0x99~0x9B，V1.10.0 自 0x6D~0x6F 迁移至此）
 DEBUG_DIR_NAMES = {
     0: "正转",
     1: "反转",
@@ -714,9 +713,9 @@ class BusAnalyzer:
             for base, label in CURVE_REGIONS:
                 if base <= addr < base + MH10_MB_FO_CURVE_REG_NUM:
                     off = addr - base
-                    if off < MH10_MB_FO_CURVE_THR_NUM:
-                        return f"({label} 阈值{CURVE_THR_NAMES[off]} {value}RPM)"
-                    return f"({label} CUR[{off - MH10_MB_FO_CURVE_THR_NUM}] {value / 10.0:.1f}A)"
+                    return (f"({label} CUR[{off}] {value / 10.0:.1f}A "
+                            f"{off * MH10_MB_FO_CURVE_SEG_RPM}~"
+                            f"{(off + 1) * MH10_MB_FO_CURVE_SEG_RPM}rpm)")
             if addr == MH10_MB_FO_DEBUG_SPEED_RW:
                 return f"(直驱 {value}RPM)"
             if addr == MH10_MB_FO_DEBUG_DIR_RW:

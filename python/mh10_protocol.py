@@ -7,12 +7,15 @@ Xunjin MH10 Modbus 协议 Python 绑定。
 仿真器和协议文档示例。所有常量与 C 头文件保持严格一致。
 """
 
-# 协议版本（V1.9.1：新增前板两段式加速稳定时间寄存器 0x17。
-# 注：版本号 BCD 编码 (MAJOR<<8)|(MINOR<<4)|PATCH，MINOR 无法表达 10，
-# 故本次以 PATCH 升版而非 V1.10.0）
+# 协议版本（V1.10.0：前板速度→峰值电流曲线扩展区改为每 500 rpm 一个
+# 固定分段的新布局——18 段 × 4 套曲线（0x50~0x97），支持标识 0x98，
+# 调试直驱区迁至 0x99~0x9B，REG_COUNT 0x70 -> 0x9C。
+# 注：编码 (MAJOR<<8)|(MINOR<<4)|PATCH；V1.10.0 起 MINOR=10，
+# 0x1D 寄存器值为 0x01A0（低字节高半字节 0xA 非 BCD 数字，
+# 主机按 16 位原始值或与本常量比较判定版本，勿按 BCD 逐位解码））
 MH10_PROTOCOL_VERSION_MAJOR = 1
-MH10_PROTOCOL_VERSION_MINOR = 9
-MH10_PROTOCOL_VERSION_PATCH = 1
+MH10_PROTOCOL_VERSION_MINOR = 10
+MH10_PROTOCOL_VERSION_PATCH = 0
 MH10_PROTOCOL_VERSION = (MH10_PROTOCOL_VERSION_MAJOR << 8) | \
                         (MH10_PROTOCOL_VERSION_MINOR << 4)  | \
                         MH10_PROTOCOL_VERSION_PATCH
@@ -97,8 +100,10 @@ MH10_TOOLHEAD_CUT_MODE_FORWARD = 0  # 正转（连续旋转，默认）
 MH10_TOOLHEAD_CUT_MODE_REVERSE = 1  # 反转（连续旋转）
 MH10_TOOLHEAD_CUT_MODE_RECIP = 2    # 往复（速度规划往复切割）
 
-# 寄存器数组大小（V1.3.0 起 0x20 -> 0x50，V1.6.0 起 0x50 -> 0x70）
-MH10_MB_REG_COUNT = 0x70
+# 寄存器数组大小（V1.3.0 起 0x20 -> 0x50，V1.6.0 起 0x50 -> 0x70，
+# V1.10.0 起 0x70 -> 0x9C：曲线区扩至 0x50~0x97，支持标识 0x98，
+# 调试直驱区 0x99~0x9B）
+MH10_MB_REG_COUNT = 0x9C
 
 # 前板电机/往复运动调参寄存器区（V1.3.0，0x20~0x4F）
 # 档位 i=0~7：jog rpm 300/600/900/1200/1500/2000/2500/3000，设定值=jog×3
@@ -148,62 +153,73 @@ MH10_TUNE_ERROR_STALL = 2
 MH10_TUNE_ERROR_TIMEOUT = 3
 MH10_TUNE_ERROR_NO_ZONE = 4
 
-# 前板正/反转电流曲线调节区（V1.6.0，0x50~0x6C）
-# 曲线模型：3 个速度阈值（工具头输出轴 rpm）把速度域分成 4 段阶梯，
-# speed<=LOW 用 CUR[0]，<=MED 用 CUR[1]，<=HIGH 用 CUR[2]，否则用 CUR[3]，无插值。
-# 共四套曲线（驱动器型号 × 方向），每套占 7 个寄存器：
-#   +0/+1/+2 RW 速度阈值 LOW/MED/HIGH（rpm，固件钳制为单调递增）
-#   +3~+6    RW 峰值电流 CUR[0..3]（0.1A，钳制到型号上限 522→22 / 556→25）
+# 前板正/反转电流曲线调节区（V1.6.0，V1.10.0 改为固定分段布局，0x50~0x98）
+# 曲线模型（V1.10.0 起）：不再有可变速度阈值，速度域按每 500 rpm 一个
+# 固定分段共 18 段（最大转速 9000 rpm = 500×18）。段 i 覆盖转速区间
+# [500*i, 500*(i+1))，查表 seg = min(speed//500, 17)，无插值纯阶梯。
+# 共四套曲线（驱动器型号 × 方向），每套占 18 个寄存器：
+#   +0~+17  RW 峰值电流 CUR[0..17]（0.1A，全局钳制 1~26，
+#            再按型号钳制上限 522→22 / 556→26）
 # 写入立即生效（易失，不擦写 flash，持久化由 box 侧负责）
-MH10_MB_FO_CURVE_FWD_522_BASE = 0x50  # RW DM2C522 正转曲线基址（0x50~0x56）
-MH10_MB_FO_CURVE_REV_522_BASE = 0x57  # RW DM2C522 反转曲线基址（0x57~0x5D）
-MH10_MB_FO_CURVE_FWD_556_BASE = 0x5E  # RW DM2C556 正转曲线基址（0x5E~0x64）
-MH10_MB_FO_CURVE_REV_556_BASE = 0x65  # RW DM2C556 反转曲线基址（0x65~0x6B）
-MH10_MB_FO_CURVE_SUPPORT_RO = 0x6C    # RO 扩展区支持标识：支持 0x50~0x6F 扩展区
+# 兼容性：与 V1.9.x 布局不兼容，主机先读 0x1D 协议版本（本布局 0x01A0）
+# 并读 0x98 支持标识魔数判定；旧固件（REG_COUNT=0x70）读写 0x62 以外的
+# 新曲线地址返回非法地址异常
+MH10_MB_FO_CURVE_FWD_522_BASE = 0x50  # RW DM2C522 正转曲线基址（0x50~0x61，CUR[0..17]）
+MH10_MB_FO_CURVE_REV_522_BASE = 0x62  # RW DM2C522 反转曲线基址（0x62~0x73）
+MH10_MB_FO_CURVE_FWD_556_BASE = 0x74  # RW DM2C556 正转曲线基址（0x74~0x85）
+MH10_MB_FO_CURVE_REV_556_BASE = 0x86  # RW DM2C556 反转曲线基址（0x86~0x97）
+MH10_MB_FO_CURVE_SUPPORT_RO = 0x98    # RO 扩展区支持标识：支持 0x50~0x9B 扩展区
                                       # （电流曲线 + 调试直驱）的固件固定返回
                                       # MH10_CURVE_SUPPORT_MAGIC；旧固件读该地址返回
                                       # 非法地址异常，主机据此优雅降级
-# 0x6D~0x6F 为调试直驱区（V1.7.0），见下方"前板调试直驱寄存器"
+# 0x99~0x9B 为调试直驱区（V1.7.0，V1.10.0 自 0x6D~0x6F 迁移至此），
+# 见下方"前板调试直驱寄存器"
 
-# 单套曲线的阈值个数 / 电流档数 / 寄存器总数
-MH10_MB_FO_CURVE_THR_NUM = 3
-MH10_MB_FO_CURVE_CUR_NUM = 4
-MH10_MB_FO_CURVE_REG_NUM = 7
+# 单套曲线的峰值电流档数 / 寄存器总数（V1.10.0 起均为 18）
+MH10_MB_FO_CURVE_CUR_NUM = 18
+MH10_MB_FO_CURVE_REG_NUM = 18
+
+# 曲线分段参数：每段转速（工具头输出轴 rpm）与分段总数
+MH10_MB_FO_CURVE_SEG_RPM = 500   # 每段 500 rpm，段 i 覆盖 [500i, 500(i+1))
+MH10_MB_FO_CURVE_SEG_NUM = 18    # 分段总数 = 9000/500，覆盖最大转速 9000 rpm
+
+# 峰值电流可调范围（单位 0.1A）：全局 1~26，再按型号钳制上限
+MH10_MB_FO_CURVE_CUR_MIN = 1       # 0.1A
+MH10_MB_FO_CURVE_CUR_MAX_522 = 22  # DM2C-RS522 峰值 2.2A
+MH10_MB_FO_CURVE_CUR_MAX_556 = 26  # DM2C-RS556 允许放宽到 2.6A
 
 # 曲线调节支持标识魔数（读 MH10_MB_FO_CURVE_SUPPORT_RO）
 MH10_CURVE_SUPPORT_MAGIC = 0xC0DE
 
-# 曲线默认值（与 V1.5.0 固件编译期行为一致，box 侧持久化缺省用）
-MH10_CURVE_DEF_THR_LOW = 1000    # rpm
-MH10_CURVE_DEF_THR_MED = 4000    # rpm
-MH10_CURVE_DEF_THR_HIGH = 7000   # rpm
-MH10_CURVE_DEF_CUR_522_0 = 16    # 0.1A
-MH10_CURVE_DEF_CUR_522_1 = 18
-MH10_CURVE_DEF_CUR_522_2 = 20
-MH10_CURVE_DEF_CUR_522_3 = 22
-MH10_CURVE_DEF_CUR_556_0 = 18    # 0.1A
-MH10_CURVE_DEF_CUR_556_1 = 20
-MH10_CURVE_DEF_CUR_556_2 = 23
-MH10_CURVE_DEF_CUR_556_3 = 25
 
-# 曲线默认值列表（正/反转相同，供虚拟板与工具直接铺默认值）
-MH10_CURVE_DEFAULT_THR = [MH10_CURVE_DEF_THR_LOW, MH10_CURVE_DEF_THR_MED, MH10_CURVE_DEF_THR_HIGH]
-MH10_CURVE_DEFAULT_CUR_522 = [MH10_CURVE_DEF_CUR_522_0, MH10_CURVE_DEF_CUR_522_1,
-                              MH10_CURVE_DEF_CUR_522_2, MH10_CURVE_DEF_CUR_522_3]
-MH10_CURVE_DEFAULT_CUR_556 = [MH10_CURVE_DEF_CUR_556_0, MH10_CURVE_DEF_CUR_556_1,
-                              MH10_CURVE_DEF_CUR_556_2, MH10_CURVE_DEF_CUR_556_3]
+def mh10_curve_seg_index(speed: int) -> int:
+    """速度→曲线段下标（V1.10.0 布局）：seg = min(speed//500, 17)。
 
-# 前板调试直驱寄存器（V1.7.0，0x6D~0x6F）
+    段 i 的峰值电流为 CUR[i]（0.1A），覆盖转速 [500*i, 500*(i+1)) rpm；
+    speed >= 9000 时钳制到末段 CUR[17]。
+    """
+    return min(speed // MH10_MB_FO_CURVE_SEG_RPM, MH10_MB_FO_CURVE_SEG_NUM - 1)
+
+
+# 曲线默认峰值电流列表（0.1A，18 段；正/反转相同）。
+# 保持 V1.9.x 旧 3 阈值 + 4 档阶梯形状的等价映射：
+# 旧 speed<=1000（段 0~1）/ <=4000（段 2~7）/ <=7000（段 8~13）/ 否则（段 14~17）
+MH10_CURVE_DEFAULT_CUR_522 = [16, 16, 18, 18, 18, 18, 18, 18,
+                              20, 20, 20, 20, 20, 20, 22, 22, 22, 22]
+MH10_CURVE_DEFAULT_CUR_556 = [18, 18, 20, 20, 20, 20, 20, 20,
+                              23, 23, 23, 23, 23, 23, 25, 25, 25, 25]
+
+# 前板调试直驱寄存器（V1.7.0 新增于 0x6D~0x6F，V1.10.0 迁移至 0x99~0x9B）
 # box 系统维护"调试模式"页面直接驱动电机连续旋转，独立于切割/往复状态机与
 # 调参手动档位运行（不占用 0x20~0x4F 调参区）；电流按曲线区对应方向/型号下发。
 # 互斥与安全：与切割引擎/调参手动运行/自动标定互斥；异常或 EXCEPTION 自动停止；
-# 上电默认停止；寄存器值易失不擦 flash；支持判定与曲线区共用 0x6C 标识
-MH10_MB_FO_DEBUG_SPEED_RW = 0x6D  # RW 直驱设定转速（工具头输出轴 rpm，与 0x0B 同刻度）
-MH10_MB_FO_DEBUG_DIR_RW = 0x6E    # RW 直驱方向：0=正转 1=反转，默认 0
-MH10_MB_FO_DEBUG_CMD_WO = 0x6F    # WO 直驱命令（mh10_debug_cmd_t），执行后清零
+# 上电默认停止；寄存器值易失不擦 flash；支持判定与曲线区共用 0x98 标识
+MH10_MB_FO_DEBUG_SPEED_RW = 0x99  # RW 直驱设定转速（工具头输出轴 rpm，与 0x0B 同刻度）
+MH10_MB_FO_DEBUG_DIR_RW = 0x9A    # RW 直驱方向：0=正转 1=反转，默认 0
+MH10_MB_FO_DEBUG_CMD_WO = 0x9B    # WO 直驱命令（mh10_debug_cmd_t），执行后清零
 
 # 调试直驱命令（写 MH10_MB_FO_DEBUG_CMD_WO）
-MH10_DEBUG_CMD_START = 1  # 启动直驱（按 0x6D/0x6E 连续旋转）
+MH10_DEBUG_CMD_START = 1  # 启动直驱（按 0x99/0x9A 连续旋转）
 MH10_DEBUG_CMD_STOP = 2   # 停止直驱（减速停机）
 
 # 后板寄存器
@@ -419,7 +435,7 @@ class MH10RegisterMap:
 
     @classmethod
     def _front_name(cls, address: int) -> _Optional[str]:
-        """前板寄存器名：先查固定表，再按 V1.3.0 档位数组 / V1.6.0 曲线区区间生成索引名。"""
+        """前板寄存器名：先查固定表，再按 V1.3.0 档位数组 / V1.10.0 曲线区区间生成索引名。"""
         name = cls._FRONT.get(address)
         if name is not None:
             return name

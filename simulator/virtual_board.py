@@ -75,9 +75,7 @@ from mh10_protocol import (
     MH10_MB_FO_CURVE_FWD_556_BASE,
     MH10_MB_FO_CURVE_REV_556_BASE,
     MH10_MB_FO_CURVE_SUPPORT_RO,
-    MH10_MB_FO_CURVE_THR_NUM,
     MH10_CURVE_SUPPORT_MAGIC,
-    MH10_CURVE_DEFAULT_THR,
     MH10_CURVE_DEFAULT_CUR_522,
     MH10_CURVE_DEFAULT_CUR_556,
     MH10_MB_FO_DEBUG_SPEED_RW,
@@ -181,7 +179,7 @@ class VirtualBoard:
         }
 
     def _init_front_board(self):
-        # V1.3.0：寄存器数组扩至 MH10_MB_REG_COUNT（V1.6.0 起 0x70），调参区填定版默认值
+        # V1.3.0：寄存器数组扩至 MH10_MB_REG_COUNT（V1.10.0 起 0x9C），调参区填定版默认值
         regs = [0] * MH10_MB_REG_COUNT
         regs[MH10_MB_REG_CONST] = MH10_MODBUS_ONLINE_CONST
         regs[MH10_MB_REG_HW_VERSION] = 0x0100
@@ -213,18 +211,16 @@ class VirtualBoard:
         regs[MH10_MB_FO_TUNE_CRAWL_ADJ_MAX] = 8
         regs[MH10_MB_FO_TUNE_ESTOP_MS] = 60
 
-        # V1.6.0 曲线区默认值：四套曲线（522/556 × 正/反转），正/反转默认相同；
-        # 虚拟板模拟"支持曲线调节"的新固件，SUPPORT_RO 固定返回 0xC0DE
+        # V1.10.0 曲线区默认值：四套曲线（522/556 × 正/反转），正/反转默认相同，
+        # 每套 18 段峰值电流；虚拟板模拟"支持曲线调节"的新固件，SUPPORT_RO 固定返回 0xC0DE
         for base, cur in (
             (MH10_MB_FO_CURVE_FWD_522_BASE, MH10_CURVE_DEFAULT_CUR_522),
             (MH10_MB_FO_CURVE_REV_522_BASE, MH10_CURVE_DEFAULT_CUR_522),
             (MH10_MB_FO_CURVE_FWD_556_BASE, MH10_CURVE_DEFAULT_CUR_556),
             (MH10_MB_FO_CURVE_REV_556_BASE, MH10_CURVE_DEFAULT_CUR_556),
         ):
-            for k in range(MH10_MB_FO_CURVE_THR_NUM):
-                regs[base + k] = MH10_CURVE_DEFAULT_THR[k]
             for k, c in enumerate(cur):
-                regs[base + MH10_MB_FO_CURVE_THR_NUM + k] = c
+                regs[base + k] = c
         regs[MH10_MB_FO_CURVE_SUPPORT_RO] = MH10_CURVE_SUPPORT_MAGIC
 
         # V1.7.0 调试直驱区默认值：上电默认停止，转速 900rpm / 方向正转
