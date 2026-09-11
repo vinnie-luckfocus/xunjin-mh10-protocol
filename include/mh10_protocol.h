@@ -2,7 +2,7 @@
 Copyright (C),  2024-2034 , XJMDT. Co., Ltd.
 File name: mh10_protocol.h
 Author: Vinnie.Zhou
-Version: V1.10.0
+Version: V1.11.0
 Date: 2026/09/10
 Contact: zhoushizheng331@gmail.com
 Description: Xunjin MH10 主控板与前后工控板 Modbus RTU 通信协议统一头文件。
@@ -22,7 +22,9 @@ extern "C" {
 /**
  * @brief 协议版本（语义化版本，编码 (MAJOR<<8)|(MINOR<<4)|PATCH）。
  *
- * 当前为 V1.10.0，对应 0x01A0（前板速度→峰值电流曲线扩展区改为
+ * 当前为 V1.11.0，对应 0x01B0（前板调参区新增 0x47 连续模式启动助力
+ * 峰值电流寄存器）。
+ * V1.10.0 对应 0x01A0（前板速度→峰值电流曲线扩展区改为
  * 每 500 rpm 一个固定分段的新布局：18 段 × 4 套曲线，曲线区扩至
  * 0x50~0x97，支持标识 0x98，调试直驱区迁移至 0x99~0x9B，
  * REG_COUNT 0x70 → 0x9C）。
@@ -32,7 +34,7 @@ extern "C" {
  * 该值同步写入系统寄存器 MH10_MB_REG_PROTOCOL_VERSION。
  */
 #define MH10_PROTOCOL_VERSION_MAJOR 1U
-#define MH10_PROTOCOL_VERSION_MINOR 10U
+#define MH10_PROTOCOL_VERSION_MINOR 11U
 #define MH10_PROTOCOL_VERSION_PATCH 0U
 #define MH10_PROTOCOL_VERSION       \
     ((uint16_t)((MH10_PROTOCOL_VERSION_MAJOR << 8) | \
@@ -153,7 +155,7 @@ typedef enum {
     MH10_MB_REG_HW_VERSION        = 0x1A, /*!< 硬件版本 */
     MH10_MB_REG_SW_VERSION        = 0x1B, /*!< 软件版本 */
     MH10_MB_REG_SVN_NUM           = 0x1C, /*!< SVN 版本号 */
-    MH10_MB_REG_PROTOCOL_VERSION  = 0x1D, /*!< 协议版本 V1.10.0 -> 0x01A0 */
+    MH10_MB_REG_PROTOCOL_VERSION  = 0x1D, /*!< 协议版本 V1.11.0 -> 0x01B0 */
     MH10_MB_REG_GIT_HASH_HI       = 0x1E, /*!< 固件 git 提交号高 16 位（短哈希前 4 位 hex） */
     MH10_MB_REG_GIT_HASH_LO       = 0x1F, /*!< 固件 git 提交号低 16 位（短哈希第 5~8 位 hex） */
 } mh10_mb_system_reg_t;
@@ -212,6 +214,17 @@ typedef enum {
     MH10_MB_FO_TUNE_REV_EXTRA    = 0x44, /*!< RW 沿采信后延迟换向步数（贴顶微调），默认 4 */
     MH10_MB_FO_TUNE_CRAWL_ADJ_MAX = 0x45,/*!< RW 爬行自适应最大加步，默认 8 */
     MH10_MB_FO_TUNE_ESTOP_MS     = 0x46, /*!< RW 急停减速时间 ms，默认 60 */
+
+    /* 连续模式启动助力（仅连续旋转模式使用，往复模式/后板不用） */
+    MH10_MB_FO_BOOST_CURRENT_RW  = 0x47, /*!< RW 连续模式启动助力峰值电流（V1.11.0，
+                                              单位 0.1A）：连续旋转模式起步/换向/升速
+                                              时峰值电流先给本值保证启动力矩，爬坡到位
+                                              并稳定 0x17 时长后恢复曲线查表正常电流；
+                                              0（上电默认）= 用驱动器型号上限
+                                              （522→22 / 556→26），有效范围 1~26，
+                                              固件再按探测到的 DM2C 型号钳上限；
+                                              写入立即生效，易失不擦 flash
+                                              （持久化由 box 侧 sys.ini 负责） */
 
     /* 标定与手动运行 */
     MH10_MB_FO_TUNE_CMD          = 0x48, /*!< WO mh10_tune_cmd_t */

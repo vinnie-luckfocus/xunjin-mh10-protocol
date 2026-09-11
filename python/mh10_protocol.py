@@ -14,7 +14,7 @@ Xunjin MH10 Modbus 协议 Python 绑定。
 # 0x1D 寄存器值为 0x01A0（低字节高半字节 0xA 非 BCD 数字，
 # 主机按 16 位原始值或与本常量比较判定版本，勿按 BCD 逐位解码））
 MH10_PROTOCOL_VERSION_MAJOR = 1
-MH10_PROTOCOL_VERSION_MINOR = 10
+MH10_PROTOCOL_VERSION_MINOR = 11
 MH10_PROTOCOL_VERSION_PATCH = 0
 MH10_PROTOCOL_VERSION = (MH10_PROTOCOL_VERSION_MAJOR << 8) | \
                         (MH10_PROTOCOL_VERSION_MINOR << 4)  | \
@@ -118,6 +118,7 @@ MH10_MB_FO_TUNE_SLOW_SPEED = 0x43         # RW 近顶爬行设定转速，默认
 MH10_MB_FO_TUNE_REV_EXTRA = 0x44          # RW 沿采信后延迟换向步数，默认 4
 MH10_MB_FO_TUNE_CRAWL_ADJ_MAX = 0x45      # RW 爬行自适应最大加步，默认 8
 MH10_MB_FO_TUNE_ESTOP_MS = 0x46           # RW 急停减速时间 ms，默认 60
+MH10_MB_FO_BOOST_CURRENT_RW = 0x47        # RW 连续模式启动助力峰值电流 0.1A（V1.11.0），0=驱动器型号上限
 MH10_MB_FO_TUNE_CMD = 0x48                # WO 1=自动标定 2=手动运行启动 3=停止 4=恢复默认
 MH10_MB_FO_TUNE_GEAR = 0x49               # RW 手动运行档位号 0~7
 MH10_MB_FO_TUNE_STATUS = 0x4A             # RO 0 空闲 1 标定中 2 手动运行中 3 标定完成 4 失败
@@ -400,6 +401,7 @@ class MH10RegisterMap:
         MH10_MB_FO_TUNE_REV_EXTRA: "MB_FO_TUNE_REV_EXTRA",
         MH10_MB_FO_TUNE_CRAWL_ADJ_MAX: "MB_FO_TUNE_CRAWL_ADJ_MAX",
         MH10_MB_FO_TUNE_ESTOP_MS: "MB_FO_TUNE_ESTOP_MS",
+        MH10_MB_FO_BOOST_CURRENT_RW: "MB_FO_BOOST_CURRENT_RW",
         MH10_MB_FO_TUNE_CMD: "MB_FO_TUNE_CMD",
         MH10_MB_FO_TUNE_GEAR: "MB_FO_TUNE_GEAR",
         MH10_MB_FO_TUNE_STATUS: "MB_FO_TUNE_STATUS",

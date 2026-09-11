@@ -170,7 +170,7 @@ class TestHeaderConsistency:
             (header["MH10_PROTOCOL_VERSION_MAJOR"] << 8)
             | (header["MH10_PROTOCOL_VERSION_MINOR"] << 4)
             | header["MH10_PROTOCOL_VERSION_PATCH"]
-        ) == 0x01A0
+        ) == 0x01B0
         assert m.MH10_MB_REG_COUNT == 0x9C
         assert m.MH10_MB_FO_CURVE_SUPPORT_RO < m.MH10_MB_REG_COUNT
         assert m.MH10_MB_FO_DEBUG_CMD_WO < m.MH10_MB_REG_COUNT
